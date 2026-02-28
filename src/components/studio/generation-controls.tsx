@@ -205,4 +205,243 @@ export function GenerationControls() {
                           type="button"
                           className="flex w-full items-center justify-between group py-2"
                         >
-                          <span className="font-sans t
+                          <span className="font-sans text-[13px] font-medium text-black">
+                            Advanced Parameters
+                          </span>
+                          <div className="flex size-6 items-center justify-center rounded-full bg-black/5 group-hover:bg-black/10 transition-colors">
+                            <ChevronDown
+                              className={cn(
+                                "size-3.5 text-neutral-500 transition-transform duration-300",
+                                advancedOpen && "rotate-180"
+                              )}
+                              strokeWidth={2}
+                            />
+                          </div>
+                        </button>
+                      </CollapsibleTrigger>
+                      
+                      <CollapsibleContent>
+                        <div className="space-y-6 pt-6">
+                          {/* Negative prompt — capability-gated */}
+                          {caps?.negativePrompt && (
+                            <div className="space-y-2">
+                              <label
+                                htmlFor="negative-prompt"
+                                className="text-xs font-semibold text-neutral-700"
+                              >
+                                Negative Prompt
+                              </label>
+                              <div className="animated-underline">
+                                <textarea
+                                  id="negative-prompt"
+                                  value={state.negativePrompt}
+                                  onChange={(e) => setNegativePrompt(e.target.value)}
+                                  placeholder="Describe what to avoid..."
+                                  rows={2}
+                                  className="w-full resize-none rounded-xl border border-black/5 bg-black/[0.02] px-3.5 py-3 text-sm text-black placeholder:text-neutral-400 focus:outline-none focus:bg-black/5"
+                                />
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Guidance Scale — fal models only */}
+                          {caps?.guidanceScale && (
+                            <div className="space-y-3">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-semibold text-neutral-700">
+                                  Guidance Scale
+                                </span>
+                                <span className="font-sans text-xs font-bold text-[#0071E3] bg-[#0071E3]/10 px-2 py-0.5 rounded-md">
+                                  {state.guidanceScale}
+                                </span>
+                              </div>
+                              <Slider
+                                value={[state.guidanceScale]}
+                                onValueChange={([val]) => setGuidanceScale(val)}
+                                min={caps.guidanceScale.min}
+                                max={caps.guidanceScale.max}
+                                step={caps.guidanceScale.step}
+                                className="w-full"
+                              />
+                            </div>
+                          )}
+
+                          {/* Inference Steps — fal models only */}
+                          {caps?.numInferenceSteps && (
+                            <div className="space-y-3">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-semibold text-neutral-700">
+                                  Inference Steps
+                                </span>
+                                <span className="font-sans text-xs font-bold text-[#0071E3] bg-[#0071E3]/10 px-2 py-0.5 rounded-md">
+                                  {state.numInferenceSteps}
+                                </span>
+                              </div>
+                              <Slider
+                                value={[state.numInferenceSteps]}
+                                onValueChange={([val]) => setNumInferenceSteps(val)}
+                                min={caps.numInferenceSteps.min}
+                                max={caps.numInferenceSteps.max}
+                                step={caps.numInferenceSteps.step}
+                                className="w-full"
+                              />
+                            </div>
+                          )}
+
+                          {/* Seed — models that support it */}
+                          {caps?.seed && (
+                            <div className="space-y-3">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-semibold text-neutral-700">
+                                  Seed
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => setSeed(String(Math.floor(Math.random() * 2147483647)))}
+                                  className="flex items-center gap-1.5 text-xs font-semibold text-[#0071E3] hover:text-[#005bb5] transition-colors"
+                                >
+                                  <Shuffle className="size-3" strokeWidth={2.5} />
+                                  Randomize
+                                </button>
+                              </div>
+                              <div className="animated-underline">
+                                <input
+                                  type="text"
+                                  inputMode="numeric"
+                                  value={state.seed}
+                                  onChange={(e) => setSeed(e.target.value.replace(/\D/g, ""))}
+                                  placeholder="Random"
+                                  className="w-full rounded-xl border border-black/5 bg-black/[0.02] px-4 py-2.5 font-mono text-sm text-black placeholder:text-neutral-400 focus:outline-none focus:bg-black/5"
+                                />
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Safety Tolerance — fal-pro only (1-6 slider) */}
+                          {caps?.safetyTolerance && (
+                            <div className="space-y-3">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-semibold text-neutral-700">
+                                  Safety Tolerance
+                                </span>
+                                <span className="font-sans text-xs font-bold text-[#0071E3] bg-[#0071E3]/10 px-2 py-0.5 rounded-md">
+                                  {state.safetyTolerance}
+                                </span>
+                              </div>
+                              <Slider
+                                value={[state.safetyTolerance]}
+                                onValueChange={([val]) => setSafetyTolerance(val)}
+                                min={caps.safetyTolerance.min}
+                                max={caps.safetyTolerance.max}
+                                step={caps.safetyTolerance.step}
+                                className="w-full"
+                              />
+                              <div className="flex justify-between px-1">
+                                <span className="text-[10px] font-semibold text-neutral-400">Strict</span>
+                                <span className="text-[10px] font-semibold text-neutral-400">Permissive</span>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Safety Checker toggle — fal dev/realism only */}
+                          {caps?.enableSafetyChecker && (
+                            <div className="flex items-center justify-between p-3 rounded-xl bg-black/5">
+                              <span className="text-sm font-semibold text-neutral-700">
+                                Safety Checker
+                              </span>
+                              <Switch
+                                checked={state.enableSafetyChecker}
+                                onCheckedChange={setEnableSafetyChecker}
+                                className="data-[state=checked]:bg-[#0071E3]"
+                              />
+                            </div>
+                          )}
+
+                          {/* Enhance Prompt toggle — vertex imagen models */}
+                          {caps?.enhancePrompt && (
+                            <div className="flex items-center justify-between p-3 rounded-xl bg-black/5">
+                              <span className="text-sm font-semibold text-neutral-700">
+                                Enhance Prompt
+                              </span>
+                              <Switch
+                                checked={state.enhancePrompt}
+                                onCheckedChange={setEnhancePrompt}
+                                className="data-[state=checked]:bg-[#0071E3]"
+                              />
+                            </div>
+                          )}
+
+                          {/* Person Generation — vertex imagen models */}
+                          {caps?.personGeneration && (
+                            <div className="space-y-3">
+                              <span className="text-xs font-semibold text-neutral-700">
+                                Person Generation
+                              </span>
+                              <div className="flex gap-2 p-1 bg-black/5 rounded-xl">
+                                {[
+                                  { value: "DONT_ALLOW", label: "None" },
+                                  { value: "ALLOW_ADULT", label: "Adults" },
+                                  { value: "ALLOW_ALL", label: "All" },
+                                ].map((opt) => (
+                                  <button
+                                    key={opt.value}
+                                    type="button"
+                                    onClick={() => setPersonGeneration(opt.value)}
+                                    className={cn(
+                                      "flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all",
+                                      state.personGeneration === opt.value
+                                        ? "bg-white text-black shadow-sm"
+                                        : "text-neutral-500 hover:text-black"
+                                    )}
+                                  >
+                                    {opt.label}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Number of Images — always available */}
+                          <div className="space-y-3">
+                            <span className="text-xs font-semibold text-neutral-700">
+                              Batch Size
+                            </span>
+                            <div className="flex gap-2 p-1 bg-black/5 rounded-xl">
+                              {[1, 2, 3, 4].map((n) => (
+                                <button
+                                  key={n}
+                                  type="button"
+                                  onClick={() => setNumberOfImages(n)}
+                                  className={cn(
+                                    "flex-1 py-1.5 text-sm font-bold rounded-lg transition-all",
+                                    state.numberOfImages === n
+                                      ? "bg-white text-black shadow-sm"
+                                      : "text-neutral-500 hover:text-black"
+                                  )}
+                                >
+                                  {n}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          {!hasAdvancedControls && (
+                            <div className="p-4 rounded-xl bg-[#0071E3]/5 border border-[#0071E3]/10">
+                              <p className="text-xs font-semibold text-[#0071E3] text-center">
+                                This specific model does not expose additional tuning parameters.
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      </CollapsibleContent>
+                    </Collapsible>
+                  </section>
+                </div>
+              </ScrollArea>
+            </div>
+          </div>
+        </motion.aside>
+      )}
+    </AnimatePresence>
+  );
+}
