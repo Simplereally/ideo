@@ -35,6 +35,9 @@ interface StudioState {
   seed: string; // empty string = random
   safetyTolerance: number;
   enableSafetyChecker: boolean;
+  // Provider-specific (google/vertex imagen)
+  enhancePrompt: boolean;
+  personGeneration: string; // "DONT_ALLOW" | "ALLOW_ADULT" | "ALLOW_ALL"
   // Status
   status: GenerationStatus;
   error: string | null;
@@ -53,13 +56,15 @@ const initialState: StudioState = {
   prompt: "",
   negativePrompt: "",
   aspectRatio: "1:1",
-  model: MODELS[0].value,
+  model: MODELS[0].id,
   numberOfImages: 1,
   guidanceScale: 3.5,
   numInferenceSteps: 28,
   seed: "",
   safetyTolerance: 2,
   enableSafetyChecker: true,
+  enhancePrompt: false,
+  personGeneration: "ALLOW_ADULT",
   status: "idle",
   error: null,
   history: [],
@@ -82,6 +87,8 @@ type StudioAction =
   | { type: "SET_SEED"; payload: string }
   | { type: "SET_SAFETY_TOLERANCE"; payload: number }
   | { type: "SET_ENABLE_SAFETY_CHECKER"; payload: boolean }
+  | { type: "SET_ENHANCE_PROMPT"; payload: boolean }
+  | { type: "SET_PERSON_GENERATION"; payload: string }
   | { type: "SET_MODEL"; payload: string }
   | { type: "SET_NUMBER_OF_IMAGES"; payload: number }
   | { type: "SET_GUIDANCE_SCALE"; payload: number }
@@ -110,10 +117,20 @@ function studioReducer(state: StudioState, action: StudioAction): StudioState {
       return { ...state, negativePrompt: action.payload };
     case "SET_ASPECT_RATIO":
       return { ...state, aspectRatio: action.payload };
-    case "SET_STYLE":
-      return { ...state, style: action.payload };
+    case "SET_NUM_INFERENCE_STEPS":
+      return { ...state, numInferenceSteps: action.payload };
+    case "SET_SEED":
+      return { ...state, seed: action.payload };
+    case "SET_SAFETY_TOLERANCE":
+      return { ...state, safetyTolerance: action.payload };
+    case "SET_ENABLE_SAFETY_CHECKER":
+      return { ...state, enableSafetyChecker: action.payload };
+    case "SET_ENHANCE_PROMPT":
+      return { ...state, enhancePrompt: action.payload };
+    case "SET_PERSON_GENERATION":
+      return { ...state, personGeneration: action.payload };
     case "SET_MODEL": {
-      const selectedModel = MODELS.find(m => m.value === action.payload);
+      const selectedModel = MODELS.find(m => m.id === action.payload);
       return { 
         ...state, 
         model: action.payload,
@@ -175,7 +192,12 @@ interface StudioContextValue {
   setPrompt: (prompt: string) => void;
   setNegativePrompt: (prompt: string) => void;
   setAspectRatio: (ratio: AspectRatio) => void;
-  setStyle: (style: ImageStyle) => void;
+  setNumInferenceSteps: (steps: number) => void;
+  setSeed: (seed: string) => void;
+  setSafetyTolerance: (tolerance: number) => void;
+  setEnableSafetyChecker: (enabled: boolean) => void;
+  setEnhancePrompt: (enabled: boolean) => void;
+  setPersonGeneration: (policy: string) => void;
   setModel: (model: string) => void;
   setNumberOfImages: (n: number) => void;
   setGuidanceScale: (scale: number) => void;
@@ -241,8 +263,28 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     (ratio: AspectRatio) => dispatch({ type: "SET_ASPECT_RATIO", payload: ratio }),
     [],
   );
-  const setStyle = useCallback(
-    (style: ImageStyle) => dispatch({ type: "SET_STYLE", payload: style }),
+  const setNumInferenceSteps = useCallback(
+    (steps: number) => dispatch({ type: "SET_NUM_INFERENCE_STEPS", payload: steps }),
+    [],
+  );
+  const setSeed = useCallback(
+    (seed: string) => dispatch({ type: "SET_SEED", payload: seed }),
+    [],
+  );
+  const setSafetyTolerance = useCallback(
+    (tolerance: number) => dispatch({ type: "SET_SAFETY_TOLERANCE", payload: tolerance }),
+    [],
+  );
+  const setEnableSafetyChecker = useCallback(
+    (enabled: boolean) => dispatch({ type: "SET_ENABLE_SAFETY_CHECKER", payload: enabled }),
+    [],
+  );
+  const setEnhancePrompt = useCallback(
+    (enabled: boolean) => dispatch({ type: "SET_ENHANCE_PROMPT", payload: enabled }),
+    [],
+  );
+  const setPersonGeneration = useCallback(
+    (policy: string) => dispatch({ type: "SET_PERSON_GENERATION", payload: policy }),
     [],
   );
   const setModel = useCallback(
@@ -318,7 +360,12 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     setPrompt,
     setNegativePrompt,
     setAspectRatio,
-    setStyle,
+    setNumInferenceSteps,
+    setSeed,
+    setSafetyTolerance,
+    setEnableSafetyChecker,
+    setEnhancePrompt,
+    setPersonGeneration,
     setModel,
     setNumberOfImages,
     setGuidanceScale,

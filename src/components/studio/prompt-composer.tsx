@@ -6,36 +6,11 @@ import { Button } from "@/components/ui/button";
 import { useStudio } from "@/lib/store";
 import { useSettingsStore } from "@/store/settings";
 import { cn } from "@/lib/utils";
-import { MODELS, STYLE_PRESETS } from "@/lib/types";
-import type { AspectRatio, GeneratedImage } from "@/lib/types";
+import { MODELS, getModelConfig } from "@/lib/types";
+import type { GeneratedImage } from "@/lib/types";
 import { toast } from "sonner";
 import { GoogleGenAI } from "@google/genai";
 import { fal } from "@fal-ai/client";
-
-// Upload a base64 string or blob to R2 via our presigned URL API
-const uploadToR2 = async (blob: Blob, ext: string): Promise<string> => {
-  const res = await fetch("/api/upload", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      fileName: `upload.${ext}`,
-      contentType: blob.type,
-    }),
-  });
-  
-  if (!res.ok) throw new Error("Failed to get presigned URL");
-  const { url } = await res.json();
-  
-  const uploadRes = await fetch(url, {
-    method: "PUT",
-    body: blob,
-    headers: { "Content-Type": blob.type },
-  });
-  
-  if (!uploadRes.ok) throw new Error("Failed to upload to R2");
-  
-  return url.split("?")[0]; 
-};
 
 export function PromptComposer() {
   const {
@@ -47,9 +22,20 @@ export function PromptComposer() {
     openApiKeyDialog,
     toggleControls,
   } = useStudio();
-  const { googleApiKey, falApiKey } = useSettingsStore();
+  const {
+    googleApiKey,
+    falApiKey,
+    vertexProjectId,
+    vertexLocation,
+    vertexAccessToken,
+  } = useSettingsStore();
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const [isMac, setIsMac] = useState(false);
+  useEffect(() => {
+    setIsMac(navigator.platform.toUpperCase().indexOf("MAC") >= 0);
+  }, []);
 
   // Auto-focus on mount
   useEffect(() => {
@@ -68,6 +54,11 @@ export function PromptComposer() {
       openApiKeyDialog();
       return;
     }
+    if (state.provider === "vertex" && (!vertexAccessToken || !vertexProjectId)) {
+      toast.error("Vertex AI credentials are missing");
+      openApiKeyDialog();
+      return;
+    }
     if (state.provider === "fal" && !falApiKey) {
       toast.error("Fal AI API Key is missing");
       openApiKeyDialog();
@@ -82,32 +73,47 @@ export function PromptComposer() {
       prompt: state.prompt,
       negativePrompt: state.negativePrompt,
       aspectRatio: state.aspectRatio,
-      style: state.style,
       model: state.model,
       provider: state.provider,
       guidanceScale: state.guidanceScale,
       numberOfImages: state.numberOfImages,
+      numInferenceSteps: state.numInferenceSteps,
+      seed: state.seed,
+      safetyTolerance: state.safetyTolerance,
+      enableSafetyChecker: state.enableSafetyChecker,
+      enhancePrompt: state.enhancePrompt,
+      personGeneration: state.personGeneration,
     };
 
     try {
       let finalImageUrl = "";
 
-      // Append style to prompt if not none
-      let finalPrompt = capturedState.prompt;
-      if (capturedState.style !== "none") {
-        finalPrompt += `, ${capturedState.style} style`;
-      }
+      const finalPrompt = capturedState.prompt;
+      const currentModelConfig = getModelConfig(capturedState.model);
+      const caps = currentModelConfig?.capabilities;
+      const apiModelId = currentModelConfig?.value ?? capturedState.model;
 
       if (capturedState.provider === "google") {
         const ai = new GoogleGenAI({ apiKey: googleApiKey });
+
+        const config: Record<string, unknown> = {
+          numberOfImages: 1,
+          aspectRatio: capturedState.aspectRatio,
+          outputMimeType: "image/jpeg",
+        };
+
+        if (caps?.seed && capturedState.seed) {
+          config.seed = parseInt(capturedState.seed, 10);
+        }
+
+        if (caps?.negativePrompt && capturedState.negativePrompt) {
+          config.negativePrompt = capturedState.negativePrompt;
+        }
+
         const response = await ai.models.generateImages({
-          model: capturedState.model,
+          model: apiModelId,
           prompt: finalPrompt,
-          config: {
-            numberOfImages: 1, // Only 1 for now
-            aspectRatio: capturedState.aspectRatio,
-            outputMimeType: "image/jpeg",
-          },
+          config,
         });
         
         const base64 = response.generatedImages?.[0]?.image?.imageBytes;
@@ -118,12 +124,107 @@ export function PromptComposer() {
         const blob = await fetchRes.blob();
         
         try {
-          finalImageUrl = await uploadToR2(blob, "jpg");
+          const res = await fetch("/api/upload", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              fileName: `upload.jpg`,
+              contentType: blob.type,
+            }),
+          });
+          
+          if (!res.ok) throw new Error("Failed to get presigned URL");
+          const { url } = await res.json();
+          
+          const uploadRes = await fetch(url, {
+            method: "PUT",
+            body: blob,
+            headers: { "Content-Type": blob.type },
+          });
+          
+          if (!uploadRes.ok) throw new Error("Failed to upload to R2");
+          
+          finalImageUrl = url.split("?")[0];
         } catch (e) {
           console.warn("R2 upload failed, falling back to data URL", e);
           finalImageUrl = `data:image/jpeg;base64,${base64}`;
         }
-        
+
+      } else if (capturedState.provider === "vertex") {
+        const ai = new GoogleGenAI({
+          vertexai: true,
+          project: vertexProjectId,
+          location: vertexLocation || "us-central1",
+          googleAuthOptions: {
+            credentials: {
+              access_token: vertexAccessToken,
+            } as any,
+          },
+        } as any);
+
+        const config: Record<string, unknown> = {
+          numberOfImages: 1,
+          aspectRatio: capturedState.aspectRatio,
+          outputMimeType: "image/png",
+        };
+
+        if (caps?.seed && capturedState.seed) {
+          config.seed = parseInt(capturedState.seed, 10);
+        }
+
+        if (caps?.negativePrompt && capturedState.negativePrompt) {
+          config.negativePrompt = capturedState.negativePrompt;
+        }
+
+        if (caps?.enhancePrompt) {
+          config.enhancePrompt = capturedState.enhancePrompt;
+        }
+
+        if (caps?.personGeneration) {
+          config.personGeneration = capturedState.personGeneration;
+        }
+
+        const response = await ai.models.generateImages({
+          model: apiModelId,
+          prompt: finalPrompt,
+          config,
+        });
+
+        const base64 = response.generatedImages?.[0]?.image?.imageBytes;
+        if (!base64) throw new Error("No image generated by Vertex AI");
+
+        const mimeType = (response.generatedImages?.[0]?.image as any)?.mimeType || "image/png";
+        const fetchRes = await fetch(`data:${mimeType};base64,${base64}`);
+        const blob = await fetchRes.blob();
+
+        try {
+          const ext = mimeType === "image/jpeg" ? "jpg" : "png";
+          const res = await fetch("/api/upload", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              fileName: `upload.${ext}`,
+              contentType: blob.type,
+            }),
+          });
+
+          if (!res.ok) throw new Error("Failed to get presigned URL");
+          const { url } = await res.json();
+
+          const uploadRes = await fetch(url, {
+            method: "PUT",
+            body: blob,
+            headers: { "Content-Type": blob.type },
+          });
+
+          if (!uploadRes.ok) throw new Error("Failed to upload to R2");
+
+          finalImageUrl = url.split("?")[0];
+        } catch (e) {
+          console.warn("R2 upload failed, falling back to data URL", e);
+          finalImageUrl = `data:${mimeType};base64,${base64}`;
+        }
+
       } else if (capturedState.provider === "fal") {
         fal.config({ credentials: falApiKey });
         
@@ -134,13 +235,31 @@ export function PromptComposer() {
         if (capturedState.aspectRatio === "4:3") imageSize = "landscape_4_3";
         if (capturedState.aspectRatio === "3:4") imageSize = "portrait_4_3";
 
-        const result = await fal.subscribe(capturedState.model, {
-          input: {
-            prompt: finalPrompt,
-            image_size: imageSize,
-            num_images: 1,
-            guidance_scale: capturedState.guidanceScale,
-          },
+        const falInput: Record<string, unknown> = {
+          prompt: finalPrompt,
+          image_size: imageSize,
+          num_images: 1,
+        };
+
+        // Only send params the model actually supports
+        if (caps?.guidanceScale) {
+          falInput.guidance_scale = capturedState.guidanceScale;
+        }
+        if (caps?.numInferenceSteps) {
+          falInput.num_inference_steps = capturedState.numInferenceSteps;
+        }
+        if (caps?.seed && capturedState.seed) {
+          falInput.seed = parseInt(capturedState.seed, 10);
+        }
+        if (caps?.safetyTolerance) {
+          falInput.safety_tolerance = String(capturedState.safetyTolerance);
+        }
+        if (caps?.enableSafetyChecker !== undefined) {
+          falInput.enable_safety_checker = capturedState.enableSafetyChecker;
+        }
+
+        const result = await fal.subscribe(apiModelId, {
+          input: falInput,
         });
         
         // @ts-ignore
@@ -155,7 +274,6 @@ export function PromptComposer() {
         negativePrompt: capturedState.negativePrompt || undefined,
         imageUrl: finalImageUrl,
         aspectRatio: capturedState.aspectRatio,
-        style: capturedState.style,
         model: capturedState.model,
         provider: capturedState.provider,
         createdAt: Date.now(),
@@ -175,6 +293,9 @@ export function PromptComposer() {
     state,
     googleApiKey,
     falApiKey,
+    vertexProjectId,
+    vertexLocation,
+    vertexAccessToken,
     startGeneration,
     completeGeneration,
     failGeneration,
@@ -182,16 +303,31 @@ export function PromptComposer() {
     setPrompt,
   ]);
 
+  // Keyboard shortcut: Cmd/Ctrl + Enter
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+        e.preventDefault();
+        handleGenerate();
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [handleGenerate]);
+
   const isGenerating = state.status === "generating";
   
   // Checking active provider key
-  const hasActiveKey = state.provider === "google" ? !!googleApiKey : !!falApiKey;
+  const hasActiveKey =
+    state.provider === "google" ? !!googleApiKey :
+    state.provider === "vertex" ? (!!vertexAccessToken && !!vertexProjectId) :
+    !!falApiKey;
   const canGenerate = hasActiveKey && state.prompt.trim().length > 0 && !isGenerating;
 
   const modelLabel =
-    MODELS.find((m) => m.value === state.model)?.label ?? state.model;
-  const styleLabel =
-    STYLE_PRESETS.find((s) => s.value === state.style)?.label;
+    MODELS.find((m) => m.id === state.model)?.label ??
+    MODELS.find((m) => m.value === state.model)?.label ??
+    state.model;
 
   return (
     <div className="fixed inset-x-0 bottom-0 z-40 flex justify-center px-4 pb-6 pointer-events-none">
@@ -210,12 +346,6 @@ export function PromptComposer() {
             onChange={(e) => {
               setPrompt(e.target.value);
               autoResize(e.target);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                handleGenerate();
-              }
             }}
             placeholder="Describe your vision..."
             rows={1}
@@ -242,21 +372,12 @@ export function PromptComposer() {
             >
               {modelLabel}
             </button>
-            {state.style !== "none" && styleLabel && (
-              <button
-                type="button"
-                onClick={toggleControls}
-                className="rounded-md bg-surface-elevated px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
-              >
-                {styleLabel}
-              </button>
-            )}
           </div>
 
           {/* Right side */}
           <div className="flex items-center gap-2">
             <span className="hidden font-mono text-[10px] text-muted-foreground/50 sm:block">
-              ↵ to generate
+              {isMac ? "⌘" : "Ctrl"}↵
             </span>
             {hasActiveKey ? (
               <Button

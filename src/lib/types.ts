@@ -2,7 +2,7 @@ export type AspectRatio = "1:1" | "16:9" | "9:16" | "4:3" | "3:4";
 
 export type GenerationStatus = "idle" | "generating" | "complete" | "error";
 
-export type Provider = "google" | "fal";
+export type Provider = "google" | "vertex" | "fal";
 
 // ---------------------------------------------------------------------------
 // Model capabilities — drives which controls appear in the UI
@@ -28,9 +28,20 @@ export interface ModelCapabilities {
   enableSafetyChecker?: boolean;
   /** Max number of images per request */
   maxImages?: number;
+  /** Imagen: enhance prompt via Google's rewriter */
+  enhancePrompt?: boolean;
+  /** Imagen: person generation policy select */
+  personGeneration?: boolean;
+  /** Whether this model supports negative prompts */
+  negativePrompt?: boolean;
+  /** Supported aspect ratios (omit = all ratios supported) */
+  aspectRatios?: AspectRatio[];
 }
 
 export interface ModelConfig {
+  /** Unique composite key — "provider:model-value" */
+  id: string;
+  /** Actual model ID sent to the API */
   value: string;
   label: string;
   description: string;
@@ -67,24 +78,110 @@ export const ASPECT_RATIOS: { value: AspectRatio; label: string; icon: string }[
 ];
 
 export const MODELS: ModelConfig[] = [
-  // ---- Google Imagen (simple API — only aspect ratio + num images) ----
+  // ---- Google AI Studio (Generative Language API) ----
   {
-    value: "imagen-3.0-generate-002",
+    id: "google:imagen-3.0-generate-001",
+    value: "imagen-3.0-generate-001",
     label: "Imagen 3",
-    description: "Google's highest quality",
+    description: "Highest quality",
     provider: "google",
-    capabilities: { maxImages: 4 },
+    capabilities: {
+      maxImages: 4,
+      seed: true,
+      negativePrompt: true,
+      aspectRatios: ["1:1", "16:9", "9:16", "4:3", "3:4"],
+    },
   },
   {
+    id: "google:imagen-3.0-fast-generate-001",
     value: "imagen-3.0-fast-generate-001",
     label: "Imagen 3 Fast",
-    description: "Google's fastest",
+    description: "Fastest generation",
     provider: "google",
-    capabilities: { maxImages: 4 },
+    capabilities: {
+      maxImages: 4,
+      seed: true,
+      negativePrompt: true,
+      aspectRatios: ["1:1", "16:9", "9:16", "4:3", "3:4"],
+    },
+  },
+
+  // ---- Vertex AI ----
+  {
+    id: "vertex:imagen-3.0-generate-001",
+    value: "imagen-3.0-generate-001",
+    label: "Imagen 3",
+    description: "High quality via Vertex",
+    provider: "vertex",
+    capabilities: {
+      maxImages: 4,
+      seed: true,
+      negativePrompt: true,
+      enhancePrompt: true,
+      personGeneration: true,
+      aspectRatios: ["1:1", "16:9", "9:16", "4:3", "3:4"],
+    },
+  },
+  {
+    id: "vertex:imagen-3.0-fast-generate-001",
+    value: "imagen-3.0-fast-generate-001",
+    label: "Imagen 3 Fast",
+    description: "Fast generation via Vertex",
+    provider: "vertex",
+    capabilities: {
+      maxImages: 4,
+      seed: true,
+      negativePrompt: true,
+      enhancePrompt: true,
+      personGeneration: true,
+      aspectRatios: ["1:1", "16:9", "9:16", "4:3", "3:4"],
+    },
+  },
+  {
+    id: "vertex:imagen-4.0-generate-001",
+    value: "imagen-4.0-generate-001",
+    label: "Imagen 4",
+    description: "Latest generation model",
+    provider: "vertex",
+    capabilities: {
+      maxImages: 4,
+      seed: true,
+      enhancePrompt: true,
+      personGeneration: true,
+      aspectRatios: ["1:1", "16:9", "9:16", "4:3", "3:4"],
+    },
+  },
+  {
+    id: "vertex:imagen-4.0-fast-generate-001",
+    value: "imagen-4.0-fast-generate-001",
+    label: "Imagen 4 Fast",
+    description: "Fast latest generation",
+    provider: "vertex",
+    capabilities: {
+      maxImages: 4,
+      seed: true,
+      personGeneration: true,
+      aspectRatios: ["1:1", "16:9", "9:16", "4:3", "3:4"],
+    },
+  },
+  {
+    id: "vertex:imagen-4.0-ultra-generate-001",
+    value: "imagen-4.0-ultra-generate-001",
+    label: "Imagen 4 Ultra",
+    description: "Highest quality available",
+    provider: "vertex",
+    capabilities: {
+      maxImages: 4,
+      seed: true,
+      enhancePrompt: true,
+      personGeneration: true,
+      aspectRatios: ["1:1", "16:9", "9:16", "4:3", "3:4"],
+    },
   },
 
   // ---- Fal: FLUX.1 [dev] ----
   {
+    id: "fal:fal-ai/flux/dev",
     value: "fal-ai/flux/dev",
     label: "FLUX.1 [dev]",
     description: "High quality open model",
@@ -100,6 +197,7 @@ export const MODELS: ModelConfig[] = [
 
   // ---- Fal: FLUX.1 [pro] ----
   {
+    id: "fal:fal-ai/flux-pro",
     value: "fal-ai/flux-pro",
     label: "FLUX.1 [pro]",
     description: "Best quality",
@@ -115,6 +213,7 @@ export const MODELS: ModelConfig[] = [
 
   // ---- Fal: FLUX Realism ----
   {
+    id: "fal:fal-ai/flux-realism",
     value: "fal-ai/flux-realism",
     label: "FLUX.1 Realism",
     description: "Photorealistic",
@@ -129,7 +228,35 @@ export const MODELS: ModelConfig[] = [
   },
 ];
 
-/** Helper — look up the currently-selected model config */
-export function getModelConfig(modelValue: string): ModelConfig | undefined {
-  return MODELS.find((m) => m.value === modelValue);
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Look up a model config by its composite id */
+export function getModelConfig(modelId: string): ModelConfig | undefined {
+  return MODELS.find((m) => m.id === modelId);
 }
+
+/** Get all models for a specific provider */
+export function getModelsForProvider(provider: Provider): ModelConfig[] {
+  return MODELS.filter((m) => m.provider === provider);
+}
+
+/** Get the first model for a given provider */
+export function getDefaultModelForProvider(provider: Provider): ModelConfig | undefined {
+  return MODELS.find((m) => m.provider === provider);
+}
+
+/** Provider display labels */
+export const PROVIDER_LABELS: Record<Provider, string> = {
+  google: "Google AI Studio",
+  vertex: "Vertex AI",
+  fal: "Fal AI",
+};
+
+/** Short provider labels for compact display */
+export const PROVIDER_SHORT_LABELS: Record<Provider, string> = {
+  google: "Google",
+  vertex: "Vertex",
+  fal: "Fal",
+};

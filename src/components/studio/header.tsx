@@ -14,21 +14,21 @@ import { cn } from "@/lib/utils";
 export function StudioHeader() {
   const { state, toggleHistory, toggleControls, openApiKeyDialog } =
     useStudio();
-  const { googleApiKey, falApiKey } = useSettingsStore();
+  const { googleApiKey, falApiKey, vertexAccessToken } = useSettingsStore();
 
-  const hasAnyKey = !!googleApiKey || !!falApiKey;
+  const hasAnyKey = !!googleApiKey || !!falApiKey || !!vertexAccessToken;
 
   return (
-    <header className="glass-panel fixed inset-x-0 top-0 z-40 flex h-14 items-center justify-between border-b border-border px-4">
+    <header className="fixed inset-x-0 top-0 z-40 flex h-16 items-center justify-between px-6 bg-gradient-to-b from-stone-50/80 to-transparent backdrop-blur-md">
       {/* Logo */}
       <div className="flex items-center">
-        <span className="font-serif text-xl italic text-amber select-none">
-          ideo
+        <span className="font-serif text-2xl tracking-tight font-medium text-black select-none">
+          Ideo
         </span>
       </div>
 
       {/* Right actions */}
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-2">
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
@@ -36,15 +36,17 @@ export function StudioHeader() {
               size="icon"
               onClick={toggleHistory}
               className={cn(
-                "size-9 hover:bg-amber-subtle",
-                state.isHistoryOpen && "text-amber bg-amber-subtle"
+                "size-10 rounded-full transition-colors",
+                state.isHistoryOpen 
+                  ? "bg-black/10 text-black" 
+                  : "text-neutral-500 hover:bg-black/5 hover:text-black"
               )}
             >
-              <Clock className="size-4" />
+              <Clock className="size-[1.1rem]" strokeWidth={2} />
               <span className="sr-only">Toggle history</span>
             </Button>
           </TooltipTrigger>
-          <TooltipContent side="bottom" sideOffset={4}>
+          <TooltipContent side="bottom" sideOffset={4} className="text-xs">
             History
           </TooltipContent>
         </Tooltip>
@@ -56,15 +58,17 @@ export function StudioHeader() {
               size="icon"
               onClick={toggleControls}
               className={cn(
-                "size-9 hover:bg-amber-subtle",
-                state.isControlsOpen && "text-amber bg-amber-subtle"
+                "size-10 rounded-full transition-colors",
+                state.isControlsOpen 
+                  ? "bg-black/10 text-black" 
+                  : "text-neutral-500 hover:bg-black/5 hover:text-black"
               )}
             >
-              <SlidersHorizontal className="size-4" />
+              <SlidersHorizontal className="size-[1.1rem]" strokeWidth={2} />
               <span className="sr-only">Toggle controls</span>
             </Button>
           </TooltipTrigger>
-          <TooltipContent side="bottom" sideOffset={4}>
+          <TooltipContent side="bottom" sideOffset={4} className="text-xs">
             Controls
           </TooltipContent>
         </Tooltip>
@@ -75,19 +79,19 @@ export function StudioHeader() {
               variant="ghost"
               size="icon"
               onClick={openApiKeyDialog}
-              className="relative size-9 hover:bg-amber-subtle"
+              className="relative size-10 rounded-full text-neutral-500 hover:bg-black/5 hover:text-black transition-colors"
             >
-              <Key className="size-4" />
+              <Key className="size-[1.1rem]" strokeWidth={2} />
               <span
                 className={cn(
-                  "absolute top-1.5 right-1.5 size-2 rounded-full",
-                  hasAnyKey ? "bg-green-500" : "bg-amber"
+                  "absolute top-[8px] right-[8px] size-2 rounded-full border-2 border-stone-50",
+                  hasAnyKey ? "bg-green-500" : "bg-red-500"
                 )}
               />
               <span className="sr-only">API Key</span>
             </Button>
           </TooltipTrigger>
-          <TooltipContent side="bottom" sideOffset={4}>
+          <TooltipContent side="bottom" sideOffset={4} className="text-xs">
             {hasAnyKey ? "API keys configured" : "Set API keys"}
           </TooltipContent>
         </Tooltip>

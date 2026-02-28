@@ -9,7 +9,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useStudio } from "@/lib/store";
-import { MODELS, STYLE_PRESETS } from "@/lib/types";
+import { MODELS } from "@/lib/types";
 import { toast } from "sonner";
 
 function formatDate(timestamp: number): string {
@@ -46,9 +46,9 @@ export function ImageViewer() {
   }
 
   const modelLabel =
-    MODELS.find((m) => m.value === image?.model)?.label ?? image?.model;
-  const styleLabel =
-    STYLE_PRESETS.find((s) => s.value === image?.style)?.label ?? image?.style;
+    MODELS.find((m) => m.id === image?.model)?.label ??
+    MODELS.find((m) => m.value === image?.model)?.label ??
+    image?.model;
 
   return (
     <Dialog
@@ -88,11 +88,7 @@ export function ImageViewer() {
                 <Badge variant="secondary" className="text-[10px]">
                   {image.aspectRatio}
                 </Badge>
-                {image.style !== "none" && (
-                  <Badge variant="secondary" className="text-[10px]">
-                    {styleLabel}
-                  </Badge>
-                )}
+
                 <span className="text-[10px] text-muted-foreground">
                   {formatDate(image.createdAt)}
                 </span>
