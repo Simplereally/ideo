@@ -19,16 +19,16 @@ export function StudioHeader() {
   const hasAnyKey = !!googleApiKey || !!falApiKey || !!vertexAccessToken;
 
   return (
-    <header className="fixed inset-x-0 top-0 z-40 flex h-16 items-center justify-between px-6 bg-gradient-to-b from-stone-50/80 to-transparent backdrop-blur-md">
+    <header className="flex h-16 shrink-0 items-center justify-between px-6 z-40 bg-transparent">
       {/* Logo */}
       <div className="flex items-center">
-        <span className="font-serif text-2xl tracking-tight font-medium text-black select-none">
+        <span className="font-serif text-[1.6rem] tracking-tight font-medium text-black select-none">
           Ideo
         </span>
       </div>
 
       {/* Right actions */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-3">
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
@@ -38,15 +38,15 @@ export function StudioHeader() {
               className={cn(
                 "size-10 rounded-full transition-colors",
                 state.isHistoryOpen 
-                  ? "bg-black/10 text-black" 
-                  : "text-neutral-500 hover:bg-black/5 hover:text-black"
+                  ? "bg-black/10 text-black shadow-inner" 
+                  : "bg-white text-neutral-600 shadow-sm border border-black/5 hover:text-black hover:border-black/10"
               )}
             >
               <Clock className="size-[1.1rem]" strokeWidth={2} />
               <span className="sr-only">Toggle history</span>
             </Button>
           </TooltipTrigger>
-          <TooltipContent side="bottom" sideOffset={4} className="text-xs">
+          <TooltipContent side="bottom" sideOffset={4} className="text-xs font-medium">
             History
           </TooltipContent>
         </Tooltip>
@@ -60,18 +60,20 @@ export function StudioHeader() {
               className={cn(
                 "size-10 rounded-full transition-colors",
                 state.isControlsOpen 
-                  ? "bg-black/10 text-black" 
-                  : "text-neutral-500 hover:bg-black/5 hover:text-black"
+                  ? "bg-black/10 text-black shadow-inner" 
+                  : "bg-white text-neutral-600 shadow-sm border border-black/5 hover:text-black hover:border-black/10"
               )}
             >
               <SlidersHorizontal className="size-[1.1rem]" strokeWidth={2} />
               <span className="sr-only">Toggle controls</span>
             </Button>
           </TooltipTrigger>
-          <TooltipContent side="bottom" sideOffset={4} className="text-xs">
+          <TooltipContent side="bottom" sideOffset={4} className="text-xs font-medium">
             Controls
           </TooltipContent>
         </Tooltip>
+
+        <div className="w-px h-5 bg-black/10 mx-1" />
 
         <Tooltip>
           <TooltipTrigger asChild>
@@ -79,19 +81,19 @@ export function StudioHeader() {
               variant="ghost"
               size="icon"
               onClick={openApiKeyDialog}
-              className="relative size-10 rounded-full text-neutral-500 hover:bg-black/5 hover:text-black transition-colors"
+              className="relative size-10 rounded-full bg-white text-neutral-600 shadow-sm border border-black/5 hover:text-black hover:border-black/10 transition-colors"
             >
               <Key className="size-[1.1rem]" strokeWidth={2} />
               <span
                 className={cn(
-                  "absolute top-[8px] right-[8px] size-2 rounded-full border-2 border-stone-50",
-                  hasAnyKey ? "bg-green-500" : "bg-red-500"
+                  "absolute top-[6px] right-[6px] size-2.5 rounded-full border-2 border-white",
+                  hasAnyKey ? "bg-[#34C759]" : "bg-[#FF3B30]"
                 )}
               />
               <span className="sr-only">API Key</span>
             </Button>
           </TooltipTrigger>
-          <TooltipContent side="bottom" sideOffset={4} className="text-xs">
+          <TooltipContent side="bottom" sideOffset={4} className="text-xs font-medium">
             {hasAnyKey ? "API keys configured" : "Set API keys"}
           </TooltipContent>
         </Tooltip>

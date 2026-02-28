@@ -78,35 +78,50 @@ export const ASPECT_RATIOS: { value: AspectRatio; label: string; icon: string }[
 ];
 
 export const MODELS: ModelConfig[] = [
-  // ---- Google AI Studio (Generative Language API) ----
+  // ---- Google AI Studio (Gemini Developer API — requires paid plan) ----
   {
-    id: "google:imagen-3.0-generate-001",
-    value: "imagen-3.0-generate-001",
-    label: "Imagen 3",
-    description: "Highest quality",
+    id: "google:imagen-4.0-generate-001",
+    value: "imagen-4.0-generate-001",
+    label: "Imagen 4",
+    description: "Latest generation model",
     provider: "google",
     capabilities: {
       maxImages: 4,
       seed: true,
-      negativePrompt: true,
+      enhancePrompt: true,
+      personGeneration: true,
       aspectRatios: ["1:1", "16:9", "9:16", "4:3", "3:4"],
     },
   },
   {
-    id: "google:imagen-3.0-fast-generate-001",
-    value: "imagen-3.0-fast-generate-001",
-    label: "Imagen 3 Fast",
+    id: "google:imagen-4.0-fast-generate-001",
+    value: "imagen-4.0-fast-generate-001",
+    label: "Imagen 4 Fast",
     description: "Fastest generation",
     provider: "google",
     capabilities: {
       maxImages: 4,
       seed: true,
-      negativePrompt: true,
+      personGeneration: true,
+      aspectRatios: ["1:1", "16:9", "9:16", "4:3", "3:4"],
+    },
+  },
+  {
+    id: "google:imagen-4.0-ultra-generate-001",
+    value: "imagen-4.0-ultra-generate-001",
+    label: "Imagen 4 Ultra",
+    description: "Highest quality available",
+    provider: "google",
+    capabilities: {
+      maxImages: 4,
+      seed: true,
+      enhancePrompt: true,
+      personGeneration: true,
       aspectRatios: ["1:1", "16:9", "9:16", "4:3", "3:4"],
     },
   },
 
-  // ---- Vertex AI ----
+  // ---- Vertex AI (requires GCP billing + access token) ----
   {
     id: "vertex:imagen-3.0-generate-001",
     value: "imagen-3.0-generate-001",

@@ -26,7 +26,7 @@ export function StudioCanvas() {
   }
 
   return (
-    <main className="fixed inset-0 top-14 pb-24 z-10 flex items-center justify-center overflow-hidden">
+    <div className="absolute inset-0 z-10 flex items-center justify-center overflow-hidden pb-32">
       <AnimatePresence mode="wait">
         {/* ---- Error State ---- */}
         {status === "error" && (
@@ -35,9 +35,9 @@ export function StudioCanvas() {
             initial={{ opacity: 0, scale: 0.96, filter: "blur(10px)" }}
             animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
             exit={{ opacity: 0, scale: 0.96, filter: "blur(10px)" }}
-            className="flex flex-col items-center gap-4 bg-white/50 backdrop-blur-xl p-8 rounded-3xl border border-red-100 shadow-2xl shadow-red-500/5"
+            className="flex flex-col items-center gap-4 bg-white/50 backdrop-blur-xl p-8 rounded-[2rem] border border-[#FF3B30]/20 shadow-2xl shadow-[#FF3B30]/5"
           >
-            <AlertCircle className="size-10 text-red-500" strokeWidth={1.5} />
+            <AlertCircle className="size-10 text-[#FF3B30]" strokeWidth={1.5} />
             <p className="max-w-sm text-center text-sm font-medium text-neutral-800">
               {error ?? "Something went wrong"}
             </p>
@@ -45,7 +45,7 @@ export function StudioCanvas() {
               variant="outline"
               size="sm"
               onClick={resetStatus}
-              className="rounded-full text-neutral-600 hover:text-black"
+              className="rounded-full text-neutral-600 hover:text-black mt-2"
             >
               Try again
             </Button>
@@ -61,13 +61,12 @@ export function StudioCanvas() {
             exit={{ opacity: 0, filter: "blur(10px)", scale: 1.05 }}
             className="flex flex-col items-center gap-6"
           >
-            <div className="relative flex items-center justify-center size-24">
-              <div className="absolute inset-0 border-[3px] border-blue-100 rounded-full" />
-              <div className="absolute inset-0 border-[3px] border-brand-blue rounded-full border-t-transparent animate-spin" />
-              <Loader2 className="size-6 text-brand-blue animate-pulse" />
+            <div className="relative flex items-center justify-center size-20">
+              <div className="absolute inset-0 border-[3px] border-black/5 rounded-full" />
+              <div className="absolute inset-0 border-[3px] border-[#0071E3] rounded-full border-t-transparent animate-spin" />
             </div>
-            <p className="font-serif text-xl text-neutral-400 animate-pulse">
-              Synthesizing...
+            <p className="font-serif text-2xl text-black/40 animate-pulse">
+              Synthesizing
             </p>
           </motion.div>
         )}
@@ -89,15 +88,15 @@ export function StudioCanvas() {
               <div
                 className={cn(
                   "relative overflow-hidden rounded-[2rem] transition-shadow duration-500 group",
-                  "shadow-[0_20px_60px_-15px_rgba(0,0,0,0.1)] hover:shadow-[0_30px_80px_-20px_rgba(0,0,0,0.15)]",
-                  "border border-black/5"
+                  "shadow-[0_24px_48px_-12px_rgba(0,0,0,0.1)] hover:shadow-[0_32px_64px_-12px_rgba(0,0,0,0.15)]",
+                  "border border-black/[0.04]"
                 )}
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={selectedImage.imageUrl}
                   alt={selectedImage.prompt}
-                  className="image-develop max-h-[calc(100dvh-12rem)] max-w-[calc(100vw-4rem)] object-contain bg-white"
+                  className="image-develop max-h-[calc(100dvh-14rem)] max-w-[calc(100vw-6rem)] object-contain bg-neutral-100"
                 />
 
                 {/* Hover overlay */}
@@ -146,10 +145,9 @@ export function StudioCanvas() {
             transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
             className="flex flex-col items-center justify-center opacity-40 pointer-events-none"
           >
-            {/* The prompt composer will be floating above this in the center when empty */}
           </motion.div>
         )}
       </AnimatePresence>
-    </main>
+    </div>
   );
 }
