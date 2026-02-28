@@ -11,7 +11,6 @@ import {
 import {
   MODELS,
   type AspectRatio,
-  type ImageStyle,
   type GenerationStatus,
   type GeneratedImage,
   type Provider,
@@ -28,10 +27,14 @@ interface StudioState {
   prompt: string;
   negativePrompt: string;
   aspectRatio: AspectRatio;
-  style: ImageStyle;
   model: string;
   numberOfImages: number;
   guidanceScale: number;
+  // Provider-specific (fal)
+  numInferenceSteps: number;
+  seed: string; // empty string = random
+  safetyTolerance: number;
+  enableSafetyChecker: boolean;
   // Status
   status: GenerationStatus;
   error: string | null;
@@ -50,10 +53,13 @@ const initialState: StudioState = {
   prompt: "",
   negativePrompt: "",
   aspectRatio: "1:1",
-  style: "none",
   model: MODELS[0].value,
   numberOfImages: 1,
-  guidanceScale: 7,
+  guidanceScale: 3.5,
+  numInferenceSteps: 28,
+  seed: "",
+  safetyTolerance: 2,
+  enableSafetyChecker: true,
   status: "idle",
   error: null,
   history: [],
@@ -72,7 +78,10 @@ type StudioAction =
   | { type: "SET_PROMPT"; payload: string }
   | { type: "SET_NEGATIVE_PROMPT"; payload: string }
   | { type: "SET_ASPECT_RATIO"; payload: AspectRatio }
-  | { type: "SET_STYLE"; payload: ImageStyle }
+  | { type: "SET_NUM_INFERENCE_STEPS"; payload: number }
+  | { type: "SET_SEED"; payload: string }
+  | { type: "SET_SAFETY_TOLERANCE"; payload: number }
+  | { type: "SET_ENABLE_SAFETY_CHECKER"; payload: boolean }
   | { type: "SET_MODEL"; payload: string }
   | { type: "SET_NUMBER_OF_IMAGES"; payload: number }
   | { type: "SET_GUIDANCE_SCALE"; payload: number }

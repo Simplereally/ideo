@@ -12,6 +12,31 @@ import { toast } from "sonner";
 import { GoogleGenAI } from "@google/genai";
 import { fal } from "@fal-ai/client";
 
+// Upload a base64 string or blob to R2 via our presigned URL API
+const uploadToR2 = async (blob: Blob, ext: string): Promise<string> => {
+  const res = await fetch("/api/upload", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      fileName: `upload.${ext}`,
+      contentType: blob.type,
+    }),
+  });
+  
+  if (!res.ok) throw new Error("Failed to get presigned URL");
+  const { url } = await res.json();
+  
+  const uploadRes = await fetch(url, {
+    method: "PUT",
+    body: blob,
+    headers: { "Content-Type": blob.type },
+  });
+  
+  if (!uploadRes.ok) throw new Error("Failed to upload to R2");
+  
+  return url.split("?")[0]; 
+};
+
 export function PromptComposer() {
   const {
     state,
@@ -25,11 +50,6 @@ export function PromptComposer() {
   const { googleApiKey, falApiKey } = useSettingsStore();
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  const [isMac, setIsMac] = useState(false);
-  useEffect(() => {
-    setIsMac(navigator.platform.toUpperCase().indexOf("MAC") >= 0);
-  }, []);
 
   // Auto-focus on mount
   useEffect(() => {
@@ -98,27 +118,7 @@ export function PromptComposer() {
         const blob = await fetchRes.blob();
         
         try {
-          const res = await fetch("/api/upload", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              fileName: `upload.jpg`,
-              contentType: blob.type,
-            }),
-          });
-          
-          if (!res.ok) throw new Error("Failed to get presigned URL");
-          const { url } = await res.json();
-          
-          const uploadRes = await fetch(url, {
-            method: "PUT",
-            body: blob,
-            headers: { "Content-Type": blob.type },
-          });
-          
-          if (!uploadRes.ok) throw new Error("Failed to upload to R2");
-          
-          finalImageUrl = url.split("?")[0];
+          finalImageUrl = await uploadToR2(blob, "jpg");
         } catch (e) {
           console.warn("R2 upload failed, falling back to data URL", e);
           finalImageUrl = `data:image/jpeg;base64,${base64}`;
@@ -182,18 +182,6 @@ export function PromptComposer() {
     setPrompt,
   ]);
 
-  // Keyboard shortcut: Cmd/Ctrl + Enter
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-        e.preventDefault();
-        handleGenerate();
-      }
-    }
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleGenerate]);
-
   const isGenerating = state.status === "generating";
   
   // Checking active provider key
@@ -222,6 +210,12 @@ export function PromptComposer() {
             onChange={(e) => {
               setPrompt(e.target.value);
               autoResize(e.target);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                handleGenerate();
+              }
             }}
             placeholder="Describe your vision..."
             rows={1}
@@ -262,7 +256,7 @@ export function PromptComposer() {
           {/* Right side */}
           <div className="flex items-center gap-2">
             <span className="hidden font-mono text-[10px] text-muted-foreground/50 sm:block">
-              {isMac ? "⌘" : "Ctrl"}↵
+              ↵ to generate
             </span>
             {hasActiveKey ? (
               <Button
