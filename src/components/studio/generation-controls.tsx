@@ -1,90 +1,41 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import {
-  ChevronDown,
-  X,
-  Shuffle,
-  Check,
-  AlertCircle,
-  Zap,
-  SlidersHorizontal,
-} from "lucide-react";
+import { useState, useMemo, useEffect } from "react";
+import { ChevronDown, X, Shuffle, Check } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Badge } from "@/components/ui/badge";
-import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { useStudio } from "@/lib/store";
-import { useSettingsStore } from "@/store/settings";
 import { cn } from "@/lib/utils";
 import {
+  MODELS,
   ASPECT_RATIOS,
   PROVIDER_LABELS,
   getModelConfig,
-  getModelsForProvider,
   type AspectRatio,
   type Provider,
+  type ModelConfig,
 } from "@/lib/types";
 
-const PROVIDERS: Provider[] = ["google", "vertex", "fal"];
-
-const PROVIDER_ACCENT: Record<Provider, { dot: string; bg: string; text: string; ring: string }> = {
-  google: {
-    dot: "bg-blue-500",
-    bg: "bg-blue-500/8 hover:bg-blue-500/12",
-    text: "text-blue-600",
-    ring: "ring-blue-500/25",
-  },
-  vertex: {
-    dot: "bg-emerald-500",
-    bg: "bg-emerald-500/8 hover:bg-emerald-500/12",
-    text: "text-emerald-600",
-    ring: "ring-emerald-500/25",
-  },
-  fal: {
-    dot: "bg-violet-500",
-    bg: "bg-violet-500/8 hover:bg-violet-500/12",
-    text: "text-violet-600",
-    ring: "ring-violet-500/25",
-  },
-};
-
-function SectionHeader({
-  children,
-  badge,
-}: {
-  children: React.ReactNode;
-  badge?: React.ReactNode;
-}) {
+function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between">
-      <span className="text-xs font-semibold text-neutral-500 tracking-wider uppercase select-none">
-        {children}
-      </span>
-      {badge}
-    </div>
+    <span className="font-sans text-[11px] font-bold text-neutral-400 tracking-wide uppercase px-2">
+      {children}
+    </span>
   );
 }
 
 export function GenerationControls() {
   const {
     state,
-    setProvider,
     setModel,
     setAspectRatio,
     setNegativePrompt,
@@ -97,28 +48,16 @@ export function GenerationControls() {
     setEnhancePrompt,
     setPersonGeneration,
     toggleControls,
-    openApiKeyDialog,
   } = useStudio();
 
-  const { googleApiKey, falApiKey, vertexAccessToken, vertexProjectId } =
-    useSettingsStore();
-
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
 
-  const hasKey: Record<Provider, boolean> = useMemo(
-    () => ({
-      google: !!googleApiKey,
-      vertex: !!vertexAccessToken && !!vertexProjectId,
-      fal: !!falApiKey,
-    }),
-    [googleApiKey, falApiKey, vertexAccessToken, vertexProjectId],
-  );
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
-  const providerModels = useMemo(
-    () => getModelsForProvider(state.provider),
-    [state.provider],
-  );
-
+  // Current model capabilities
   const modelConfig = useMemo(
     () => getModelConfig(state.model),
     [state.model],
@@ -136,445 +75,134 @@ export function GenerationControls() {
     caps?.personGeneration
   );
 
+  const groupedModels = useMemo(() => {
+    const groups: { provider: Provider; label: string; models: ModelConfig[] }[] = [];
+    let currentProvider: Provider | null = null;
+    for (const model of MODELS) {
+      if (model.provider !== currentProvider) {
+        currentProvider = model.provider;
+        groups.push({
+          provider: model.provider,
+          label: PROVIDER_LABELS[model.provider],
+          models: [],
+        });
+      }
+      groups[groups.length - 1].models.push(model);
+    }
+    return groups;
+  }, []);
+
+  if (!mounted) return null;
+
   return (
-    <AnimatePresence>
+    <AnimatePresence initial={false}>
       {state.isControlsOpen && (
         <motion.aside
-          initial={{ x: -380, opacity: 0 }}
-          animate={{ x: 0, opacity: 1 }}
-          exit={{ x: -380, opacity: 0 }}
-          transition={{ type: "spring", damping: 32, stiffness: 320 }}
-          className={cn(
-            "fixed top-20 left-5 bottom-5 z-50",
-            "flex w-[340px] flex-col",
-            "rounded-2xl",
-            "bg-white/70 backdrop-blur-2xl backdrop-saturate-150",
-            "border border-black/[0.06]",
-            "shadow-[0_8px_40px_-12px_rgba(0,0,0,0.1),0_0_0_1px_rgba(0,0,0,0.02)]",
-            "overflow-hidden",
-          )}
+          initial={{ width: 0, opacity: 0 }}
+          animate={{ width: 340, opacity: 1 }}
+          exit={{ width: 0, opacity: 0 }}
+          transition={{ type: "spring", damping: 28, stiffness: 250 }}
+          className="flex flex-col shrink-0 h-full overflow-hidden"
         >
-          {/* ═══════ Header ═══════ */}
-          <div className="flex items-center justify-between px-6 py-4 border-b border-black/[0.04] bg-white/40">
-            <div className="flex items-center gap-2.5">
-              <div className="flex size-8 items-center justify-center rounded-xl bg-amber-500/10">
-                <SlidersHorizontal className="size-4 text-amber-600" strokeWidth={2} />
-              </div>
-              <span className="text-base font-semibold text-neutral-800 tracking-tight">
-                Controls
-              </span>
+          <div className="w-[340px] h-full flex flex-col bg-white rounded-3xl border border-black/[0.04] shadow-sm">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-black/[0.04] bg-white z-10 shrink-0">
+              <h2 className="text-[15px] font-semibold text-black tracking-tight">Settings</h2>
+              <button
+                type="button"
+                onClick={toggleControls}
+                className="flex size-7 items-center justify-center rounded-full bg-black/5 text-neutral-500 transition-colors hover:bg-black/10 hover:text-black"
+              >
+                <X className="size-3.5" strokeWidth={2.5} />
+              </button>
             </div>
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              onClick={toggleControls}
-              className="size-8 rounded-xl text-neutral-400 hover:text-neutral-700 hover:bg-black/5"
-            >
-              <X className="size-4" strokeWidth={2.5} />
-            </Button>
-          </div>
 
-          <ScrollArea className="flex-1">
-            <div className="flex flex-col gap-7 p-6">
-              {/* ═══════ Provider ═══════ */}
-              <section className="space-y-3.5">
-                <SectionHeader>Provider</SectionHeader>
-                <div className="grid grid-cols-3 gap-2">
-                  {PROVIDERS.map((p) => {
-                    const isSelected = state.provider === p;
-                    const accent = PROVIDER_ACCENT[p];
-                    return (
-                      <Tooltip key={p}>
-                        <TooltipTrigger asChild>
-                          <button
-                            type="button"
-                            onClick={() => setProvider(p)}
-                            className={cn(
-                              "relative flex items-center justify-center gap-2 rounded-xl py-3 px-3 text-center transition-all duration-200",
-                              isSelected
-                                ? cn(accent.bg, accent.text, "ring-1", accent.ring, "font-semibold")
-                                : "bg-black/[0.03] text-neutral-500 hover:bg-black/[0.06] hover:text-neutral-700",
-                            )}
-                          >
-                            <span
-                              className={cn(
-                                "size-2 rounded-full shrink-0 transition-colors",
-                                hasKey[p] ? accent.dot : "bg-neutral-300",
-                              )}
-                            />
-                            <span className="text-sm font-medium leading-none">
-                              {PROVIDER_LABELS[p].split(" ")[0]}
-                            </span>
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent side="bottom" className="text-sm">
-                          {PROVIDER_LABELS[p]}
-                          {!hasKey[p] && " — No API key"}
-                        </TooltipContent>
-                      </Tooltip>
-                    );
-                  })}
-                </div>
-
-                {/* Missing key warning */}
-                {!hasKey[state.provider] && (
-                  <button
-                    type="button"
-                    onClick={openApiKeyDialog}
-                    className="flex items-center gap-3 rounded-xl bg-amber-50/80 border border-amber-200/40 px-4 py-3 text-left transition-colors hover:bg-amber-100/60 w-full group"
-                  >
-                    <AlertCircle className="size-4 shrink-0 text-amber-500" strokeWidth={2} />
-                    <span className="text-sm font-medium text-amber-700 leading-snug">
-                      API key required.{" "}
-                      <span className="underline underline-offset-2 group-hover:text-amber-900 transition-colors">
-                        Configure
-                      </span>
-                    </span>
-                  </button>
-                )}
-              </section>
-
-              <Separator className="bg-black/[0.04]" />
-
-              {/* ═══════ Model ═══════ */}
-              <section className="space-y-3.5">
-                <SectionHeader
-                  badge={
-                    <Badge variant="secondary" className="text-[11px] px-2 py-0.5 h-5 rounded-md bg-black/[0.04] text-neutral-500 font-medium border-0">
-                      {providerModels.length}
-                    </Badge>
-                  }
-                >
-                  Model
-                </SectionHeader>
-                <div className="flex flex-col gap-1.5">
-                  {providerModels.map((model) => {
-                    const isSelected = state.model === model.id;
-                    return (
-                      <button
-                        key={model.id}
-                        type="button"
-                        onClick={() => setModel(model.id)}
-                        className={cn(
-                          "flex items-center justify-between gap-3 rounded-xl px-4 py-3 text-left transition-all duration-200",
-                          isSelected
-                            ? "bg-neutral-900 text-white shadow-sm shadow-neutral-900/20"
-                            : "bg-transparent text-neutral-600 hover:bg-black/[0.04] hover:text-neutral-900",
-                        )}
-                      >
-                        <div className="flex flex-col gap-1 min-w-0">
-                          <span className="text-sm font-semibold tracking-tight truncate">
-                            {model.label}
+            <div className="flex-1 overflow-hidden">
+              <ScrollArea className="h-full">
+                <div className="flex flex-col gap-8 p-6 pb-12">
+                  
+                  {/* ---- Model ---- */}
+                  <section className="space-y-3">
+                    <SectionLabel>Model</SectionLabel>
+                    <div className="flex flex-col gap-6 pt-1">
+                      {groupedModels.map((group) => (
+                        <div key={group.provider} className="space-y-2">
+                          <span className="text-[10px] font-bold tracking-widest text-[#0071E3] uppercase px-2">
+                            {group.label}
                           </span>
-                          <span
-                            className={cn(
-                              "text-xs leading-snug truncate",
-                              isSelected ? "text-neutral-400" : "text-neutral-400",
-                            )}
-                          >
-                            {model.description}
-                          </span>
+                          <div className="ios-list">
+                            {group.models.map((model) => {
+                              const isSelected = state.model === model.id;
+                              return (
+                                <button
+                                  key={model.id}
+                                  type="button"
+                                  onClick={() => setModel(model.id)}
+                                  className={cn(
+                                    "ios-list-item flex items-center justify-between gap-2 w-full p-3.5 transition-colors",
+                                    isSelected && "selected"
+                                  )}
+                                >
+                                  <div className="flex flex-col gap-0.5 text-left">
+                                    <span className={cn(
+                                      "text-[13px] font-medium tracking-tight",
+                                      isSelected ? "text-[#0071E3]" : "text-black"
+                                    )}>
+                                      {model.label}
+                                    </span>
+                                    <span className="text-[11px] text-neutral-500">
+                                      {model.description}
+                                    </span>
+                                  </div>
+                                  {isSelected && <Check className="size-4 text-[#0071E3]" strokeWidth={2.5} />}
+                                </button>
+                              );
+                            })}
+                          </div>
                         </div>
-                        {isSelected && (
-                          <Check className="size-4 shrink-0 text-amber-400" strokeWidth={2.5} />
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              </section>
+                      ))}
+                    </div>
+                  </section>
 
-              <Separator className="bg-black/[0.04]" />
+                  <Separator className="bg-black/5 mx-2" />
 
-              {/* ═══════ Aspect Ratio ═══════ */}
-              <section className="space-y-3.5">
-                <SectionHeader>Aspect Ratio</SectionHeader>
-                <div className="grid grid-cols-5 gap-1.5">
-                  {ASPECT_RATIOS.map((ar) => {
-                    const isSelected = state.aspectRatio === ar.value;
-                    const supported =
-                      !caps?.aspectRatios ||
-                      caps.aspectRatios.includes(ar.value);
-                    return (
-                      <Tooltip key={ar.value}>
-                        <TooltipTrigger asChild>
+                  {/* ---- Aspect Ratio ---- */}
+                  <section className="space-y-4">
+                    <SectionLabel>Aspect Ratio</SectionLabel>
+                    <div className="grid grid-cols-3 gap-2 px-2">
+                      {ASPECT_RATIOS.map((ar) => {
+                        const isSelected = state.aspectRatio === ar.value;
+                        return (
                           <button
+                            key={ar.value}
                             type="button"
-                            onClick={() =>
-                              supported && setAspectRatio(ar.value as AspectRatio)
-                            }
+                            onClick={() => setAspectRatio(ar.value as AspectRatio)}
                             className={cn(
-                              "flex flex-col items-center justify-center gap-1.5 rounded-xl py-2.5 transition-all duration-200",
-                              !supported && "opacity-25 cursor-not-allowed",
+                              "flex flex-col items-center justify-center gap-1.5 rounded-xl py-3.5 transition-all",
                               isSelected
-                                ? "bg-neutral-900 text-white shadow-sm"
-                                : "bg-black/[0.03] text-neutral-500 hover:bg-black/[0.06] hover:text-neutral-700",
+                                ? "bg-black text-white shadow-md"
+                                : "bg-black/5 text-neutral-500 hover:bg-black/10 hover:text-black"
                             )}
                           >
-                            <span className="text-base leading-none opacity-70">{ar.icon}</span>
-                            <span className="text-[11px] font-semibold tracking-tight">{ar.value}</span>
+                            <span className="text-lg leading-none opacity-80">{ar.icon}</span>
+                            <span className="font-sans text-[11px] font-medium">{ar.value}</span>
                           </button>
-                        </TooltipTrigger>
-                        <TooltipContent side="bottom" className="text-sm">
-                          {ar.label}{!supported && " (unsupported)"}
-                        </TooltipContent>
-                      </Tooltip>
-                    );
-                  })}
-                </div>
-              </section>
-
-              <Separator className="bg-black/[0.04]" />
-
-              {/* ═══════ Advanced Parameters ═══════ */}
-              <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
-                <CollapsibleTrigger asChild>
-                  <button
-                    type="button"
-                    className="flex w-full items-center justify-between group py-1"
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <SectionHeader>Advanced</SectionHeader>
-                      {hasAdvancedControls && (
-                        <Zap className="size-3.5 text-amber-500" strokeWidth={2} />
-                      )}
+                        );
+                      })}
                     </div>
-                    <div className="flex size-7 items-center justify-center rounded-lg bg-black/[0.04] group-hover:bg-black/[0.08] transition-colors">
-                      <ChevronDown
-                        className={cn(
-                          "size-4 text-neutral-500 transition-transform duration-300",
-                          advancedOpen && "rotate-180",
-                        )}
-                        strokeWidth={2.5}
-                      />
-                    </div>
-                  </button>
-                </CollapsibleTrigger>
-                <CollapsibleContent>
-                  <div className="space-y-6 pt-5">
-                    {/* Negative Prompt */}
-                    {caps?.negativePrompt && (
-                      <div className="space-y-2.5">
-                        <Label
-                          htmlFor="negative-prompt"
-                          className="text-sm font-medium text-neutral-600"
+                  </section>
+
+                  <Separator className="bg-black/5 mx-2" />
+
+                  {/* ---- Advanced Parameters ---- */}
+                  <section className="px-2">
+                    <Collapsible
+                      open={advancedOpen}
+                      onOpenChange={setAdvancedOpen}
+                    >
+                      <CollapsibleTrigger asChild>
+                        <button
+                          type="button"
+                          className="flex w-full items-center justify-between group py-2"
                         >
-                          Negative Prompt
-                        </Label>
-                        <textarea
-                          id="negative-prompt"
-                          value={state.negativePrompt}
-                          onChange={(e) => setNegativePrompt(e.target.value)}
-                          placeholder="What to avoid..."
-                          rows={2}
-                          className="w-full resize-none rounded-xl border border-black/[0.06] bg-black/[0.02] px-4 py-3 text-sm text-neutral-800 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500/30 transition-all"
-                        />
-                      </div>
-                    )}
-
-                    {/* Guidance Scale */}
-                    {caps?.guidanceScale && (
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between">
-                          <Label className="text-sm font-medium text-neutral-600">
-                            Guidance Scale
-                          </Label>
-                          <Badge variant="secondary" className="text-xs h-6 px-2.5 rounded-lg bg-amber-50 text-amber-700 border-0 font-semibold tabular-nums">
-                            {state.guidanceScale}
-                          </Badge>
-                        </div>
-                        <Slider
-                          value={[state.guidanceScale]}
-                          onValueChange={([val]) => setGuidanceScale(val)}
-                          min={caps.guidanceScale.min}
-                          max={caps.guidanceScale.max}
-                          step={caps.guidanceScale.step}
-                          className="w-full"
-                        />
-                      </div>
-                    )}
-
-                    {/* Inference Steps */}
-                    {caps?.numInferenceSteps && (
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between">
-                          <Label className="text-sm font-medium text-neutral-600">
-                            Inference Steps
-                          </Label>
-                          <Badge variant="secondary" className="text-xs h-6 px-2.5 rounded-lg bg-amber-50 text-amber-700 border-0 font-semibold tabular-nums">
-                            {state.numInferenceSteps}
-                          </Badge>
-                        </div>
-                        <Slider
-                          value={[state.numInferenceSteps]}
-                          onValueChange={([val]) => setNumInferenceSteps(val)}
-                          min={caps.numInferenceSteps.min}
-                          max={caps.numInferenceSteps.max}
-                          step={caps.numInferenceSteps.step}
-                          className="w-full"
-                        />
-                      </div>
-                    )}
-
-                    {/* Seed */}
-                    {caps?.seed && (
-                      <div className="space-y-2.5">
-                        <div className="flex items-center justify-between">
-                          <Label className="text-sm font-medium text-neutral-600">
-                            Seed
-                          </Label>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() =>
-                              setSeed(
-                                String(Math.floor(Math.random() * 2147483647)),
-                              )
-                            }
-                            className="h-7 px-2.5 gap-1.5 text-xs font-medium text-amber-600 hover:text-amber-700 hover:bg-amber-50/80"
-                          >
-                            <Shuffle className="size-3" strokeWidth={2.5} />
-                            Random
-                          </Button>
-                        </div>
-                        <Input
-                          type="text"
-                          inputMode="numeric"
-                          value={state.seed}
-                          onChange={(e) =>
-                            setSeed(e.target.value.replace(/\D/g, ""))
-                          }
-                          placeholder="Random"
-                          className="h-10 rounded-xl border-black/[0.06] bg-black/[0.02] px-4 font-mono text-sm text-neutral-800 placeholder:text-neutral-400 focus-visible:ring-amber-500/20 focus-visible:border-amber-500/30"
-                        />
-                      </div>
-                    )}
-
-                    {/* Safety Tolerance */}
-                    {caps?.safetyTolerance && (
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between">
-                          <Label className="text-sm font-medium text-neutral-600">
-                            Safety Tolerance
-                          </Label>
-                          <Badge variant="secondary" className="text-xs h-6 px-2.5 rounded-lg bg-amber-50 text-amber-700 border-0 font-semibold tabular-nums">
-                            {state.safetyTolerance}
-                          </Badge>
-                        </div>
-                        <Slider
-                          value={[state.safetyTolerance]}
-                          onValueChange={([val]) => setSafetyTolerance(val)}
-                          min={caps.safetyTolerance.min}
-                          max={caps.safetyTolerance.max}
-                          step={caps.safetyTolerance.step}
-                          className="w-full"
-                        />
-                        <div className="flex justify-between px-0.5">
-                          <span className="text-[11px] font-medium text-neutral-400">
-                            Strict
-                          </span>
-                          <span className="text-[11px] font-medium text-neutral-400">
-                            Permissive
-                          </span>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Safety Checker */}
-                    {caps?.enableSafetyChecker && (
-                      <div className="flex items-center justify-between rounded-xl bg-black/[0.02] border border-black/[0.04] px-4 py-3.5">
-                        <Label className="text-sm font-medium text-neutral-700">
-                          Safety Checker
-                        </Label>
-                        <Switch
-                          checked={state.enableSafetyChecker}
-                          onCheckedChange={setEnableSafetyChecker}
-                        />
-                      </div>
-                    )}
-
-                    {/* Enhance Prompt */}
-                    {caps?.enhancePrompt && (
-                      <div className="flex items-center justify-between rounded-xl bg-black/[0.02] border border-black/[0.04] px-4 py-3.5">
-                        <Label className="text-sm font-medium text-neutral-700">
-                          Enhance Prompt
-                        </Label>
-                        <Switch
-                          checked={state.enhancePrompt}
-                          onCheckedChange={setEnhancePrompt}
-                        />
-                      </div>
-                    )}
-
-                    {/* Person Generation */}
-                    {caps?.personGeneration && (
-                      <div className="space-y-2.5">
-                        <Label className="text-sm font-medium text-neutral-600">
-                          Person Generation
-                        </Label>
-                        <div className="flex gap-1.5 p-1.5 bg-black/[0.03] rounded-xl border border-black/[0.04]">
-                          {[
-                            { value: "DONT_ALLOW", label: "None" },
-                            { value: "ALLOW_ADULT", label: "Adults" },
-                            { value: "ALLOW_ALL", label: "All" },
-                          ].map((opt) => (
-                            <button
-                              key={opt.value}
-                              type="button"
-                              onClick={() => setPersonGeneration(opt.value)}
-                              className={cn(
-                                "flex-1 py-2 text-sm font-semibold rounded-lg transition-all duration-200",
-                                state.personGeneration === opt.value
-                                  ? "bg-white text-neutral-900 shadow-sm"
-                                  : "text-neutral-500 hover:text-neutral-700",
-                              )}
-                            >
-                              {opt.label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Batch Size */}
-                    <div className="space-y-2.5">
-                      <Label className="text-sm font-medium text-neutral-600">
-                        Batch Size
-                      </Label>
-                      <div className="flex gap-1.5 p-1.5 bg-black/[0.03] rounded-xl border border-black/[0.04]">
-                        {[1, 2, 3, 4].map((n) => (
-                          <button
-                            key={n}
-                            type="button"
-                            onClick={() => setNumberOfImages(n)}
-                            className={cn(
-                              "flex-1 py-2 text-sm font-bold rounded-lg transition-all duration-200 tabular-nums",
-                              state.numberOfImages === n
-                                ? "bg-white text-neutral-900 shadow-sm"
-                                : "text-neutral-500 hover:text-neutral-700",
-                            )}
-                          >
-                            {n}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* No advanced controls hint */}
-                    {!hasAdvancedControls && (
-                      <div className="p-4 rounded-xl bg-amber-50/50 border border-amber-200/30">
-                        <p className="text-sm font-medium text-amber-700 text-center leading-relaxed">
-                          This model does not expose additional tuning parameters.
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                </CollapsibleContent>
-              </Collapsible>
-            </div>
-          </ScrollArea>
-        </motion.aside>
-      )}
-    </AnimatePresence>
-  );
-}
+                          <span className="font-sans t

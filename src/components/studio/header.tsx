@@ -1,6 +1,6 @@
 "use client";
 
-import { Clock, SlidersHorizontal, Key } from "lucide-react";
+import { Key } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -12,8 +12,7 @@ import { useSettingsStore } from "@/store/settings";
 import { cn } from "@/lib/utils";
 
 export function StudioHeader() {
-  const { state, toggleHistory, toggleControls, openApiKeyDialog } =
-    useStudio();
+  const { openApiKeyDialog } = useStudio();
   const { googleApiKey, falApiKey, vertexAccessToken } = useSettingsStore();
 
   const hasAnyKey = !!googleApiKey || !!falApiKey || !!vertexAccessToken;
@@ -29,52 +28,6 @@ export function StudioHeader() {
 
       {/* Right actions */}
       <div className="flex items-center gap-3">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={toggleHistory}
-              className={cn(
-                "size-10 rounded-full transition-colors",
-                state.isHistoryOpen 
-                  ? "bg-black/10 text-black shadow-inner" 
-                  : "bg-white text-neutral-600 shadow-sm border border-black/5 hover:text-black hover:border-black/10"
-              )}
-            >
-              <Clock className="size-[1.1rem]" strokeWidth={2} />
-              <span className="sr-only">Toggle history</span>
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" sideOffset={4} className="text-xs font-medium">
-            History
-          </TooltipContent>
-        </Tooltip>
-
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={toggleControls}
-              className={cn(
-                "size-10 rounded-full transition-colors",
-                state.isControlsOpen 
-                  ? "bg-black/10 text-black shadow-inner" 
-                  : "bg-white text-neutral-600 shadow-sm border border-black/5 hover:text-black hover:border-black/10"
-              )}
-            >
-              <SlidersHorizontal className="size-[1.1rem]" strokeWidth={2} />
-              <span className="sr-only">Toggle controls</span>
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" sideOffset={4} className="text-xs font-medium">
-            Controls
-          </TooltipContent>
-        </Tooltip>
-
-        <div className="w-px h-5 bg-black/10 mx-1" />
-
         <Tooltip>
           <TooltipTrigger asChild>
             <Button

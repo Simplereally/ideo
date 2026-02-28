@@ -241,6 +241,44 @@ export const MODELS: ModelConfig[] = [
       maxImages: 4,
     },
   },
+
+  // ---- Fal: Nano Banana (Google's Gemini Flash Image models) ----
+  {
+    id: "fal:fal-ai/nano-banana",
+    value: "fal-ai/nano-banana",
+    label: "Nano Banana",
+    description: "Google's original fast image model",
+    provider: "fal",
+    capabilities: {
+      seed: true,
+      safetyTolerance: { min: 1, max: 6, default: 4, step: 1 },
+      maxImages: 4,
+    },
+  },
+  {
+    id: "fal:fal-ai/nano-banana-pro",
+    value: "fal-ai/nano-banana-pro",
+    label: "Nano Banana Pro",
+    description: "Google's state-of-the-art image model",
+    provider: "fal",
+    capabilities: {
+      seed: true,
+      safetyTolerance: { min: 1, max: 6, default: 4, step: 1 },
+      maxImages: 4,
+    },
+  },
+  {
+    id: "fal:fal-ai/nano-banana-2",
+    value: "fal-ai/nano-banana-2",
+    label: "Nano Banana 2",
+    description: "4x faster, lower cost, better quality",
+    provider: "fal",
+    capabilities: {
+      seed: true,
+      safetyTolerance: { min: 1, max: 6, default: 4, step: 1 },
+      maxImages: 4,
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------
