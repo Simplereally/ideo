@@ -10,6 +10,8 @@ import {
 } from "react";
 import {
   MODELS,
+  getModelsForProvider,
+  getDefaultModelForProvider,
   type AspectRatio,
   type GenerationStatus,
   type GeneratedImage,
@@ -80,6 +82,7 @@ const initialState: StudioState = {
 // ---------------------------------------------------------------------------
 
 type StudioAction =
+  | { type: "SET_PROVIDER"; payload: Provider }
   | { type: "SET_PROMPT"; payload: string }
   | { type: "SET_NEGATIVE_PROMPT"; payload: string }
   | { type: "SET_ASPECT_RATIO"; payload: AspectRatio }
@@ -111,6 +114,20 @@ type StudioAction =
 
 function studioReducer(state: StudioState, action: StudioAction): StudioState {
   switch (action.type) {
+    case "SET_PROVIDER": {
+      const newProvider = action.payload;
+      // If current model doesn't belong to new provider, pick the first model for it
+      const currentModel = MODELS.find((m) => m.id === state.model);
+      if (currentModel?.provider === newProvider) {
+        return { ...state, provider: newProvider };
+      }
+      const defaultModel = getDefaultModelForProvider(newProvider);
+      return {
+        ...state,
+        provider: newProvider,
+        model: defaultModel?.id ?? state.model,
+      };
+    }
     case "SET_PROMPT":
       return { ...state, prompt: action.payload };
     case "SET_NEGATIVE_PROMPT":
@@ -189,6 +206,7 @@ function studioReducer(state: StudioState, action: StudioAction): StudioState {
 
 interface StudioContextValue {
   state: StudioState;
+  setProvider: (provider: Provider) => void;
   setPrompt: (prompt: string) => void;
   setNegativePrompt: (prompt: string) => void;
   setAspectRatio: (ratio: AspectRatio) => void;
@@ -251,6 +269,10 @@ export function StudioProvider({ children }: { children: ReactNode }) {
 
   // ---- Action creators (stable refs via useCallback) ----
 
+  const setProvider = useCallback(
+    (provider: Provider) => dispatch({ type: "SET_PROVIDER", payload: provider }),
+    [],
+  );
   const setPrompt = useCallback(
     (prompt: string) => dispatch({ type: "SET_PROMPT", payload: prompt }),
     [],
@@ -357,6 +379,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
 
   const value: StudioContextValue = {
     state,
+    setProvider,
     setPrompt,
     setNegativePrompt,
     setAspectRatio,

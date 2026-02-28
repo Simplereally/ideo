@@ -27,7 +27,7 @@ import {
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <span className="font-sans text-xs font-medium text-neutral-400">
+    <span className="font-sans text-xs font-semibold text-neutral-400 tracking-wide uppercase">
       {children}
     </span>
   );
@@ -93,15 +93,15 @@ export function GenerationControls() {
     <AnimatePresence>
       {state.isControlsOpen && (
         <motion.aside
-          initial={{ x: 360, opacity: 0 }}
-          animate={{ x: 0, opacity: 1 }}
-          exit={{ x: 360, opacity: 0 }}
+          initial={{ x: 360, opacity: 0, scale: 0.95 }}
+          animate={{ x: 0, opacity: 1, scale: 1 }}
+          exit={{ x: 360, opacity: 0, scale: 0.95 }}
           transition={{ type: "spring", damping: 30, stiffness: 300 }}
-          className="fixed top-20 right-6 bottom-6 z-30 flex w-[320px] flex-col rounded-[2rem] bg-white/80 backdrop-blur-2xl border border-black/5 shadow-2xl shadow-black/5 overflow-hidden"
+          className="fixed top-24 right-6 bottom-6 z-50 flex w-[320px] flex-col rounded-[2rem] bg-white/80 backdrop-blur-3xl border border-black/5 shadow-[0_8px_40px_rgb(0,0,0,0.08)] overflow-hidden"
         >
           {/* Header */}
           <div className="flex items-center justify-between border-b border-black/5 px-6 py-4 bg-white/50">
-            <h2 className="text-sm font-semibold text-black">Settings</h2>
+            <h2 className="text-sm font-semibold text-black tracking-tight">Settings</h2>
             <button
               type="button"
               onClick={toggleControls}
@@ -119,7 +119,7 @@ export function GenerationControls() {
                 <div className="flex flex-col gap-6">
                   {groupedModels.map((group) => (
                     <div key={group.provider} className="space-y-3">
-                      <span className="text-[11px] font-semibold tracking-wider text-brand-blue uppercase">
+                      <span className="text-[10px] font-bold tracking-widest text-[#0071E3] uppercase">
                         {group.label}
                       </span>
                       <div className="flex flex-col gap-2">
@@ -133,15 +133,15 @@ export function GenerationControls() {
                               className={cn(
                                 "flex items-center justify-between gap-2 rounded-xl p-3 text-left transition-all",
                                 isSelected
-                                  ? "bg-brand-blue text-white shadow-md shadow-brand-blue/20"
+                                  ? "bg-[#0071E3] text-white shadow-md shadow-[#0071E3]/20"
                                   : "bg-black/5 text-neutral-600 hover:bg-black/10 hover:text-black"
                               )}
                             >
                               <div className="flex flex-col gap-0.5">
-                                <span className="text-sm font-medium">
+                                <span className="text-sm font-semibold tracking-tight">
                                   {model.label}
                                 </span>
-                                <span className={cn("text-xs opacity-70", isSelected ? "text-blue-100" : "text-neutral-500")}>
+                                <span className={cn("text-xs", isSelected ? "text-blue-100" : "text-neutral-500")}>
                                   {model.description}
                                 </span>
                               </div>
@@ -176,7 +176,7 @@ export function GenerationControls() {
                         )}
                       >
                         <span className="text-lg leading-none opacity-80">{ar.icon}</span>
-                        <span className="font-sans text-[11px] font-medium">{ar.value}</span>
+                        <span className="font-sans text-[11px] font-semibold">{ar.value}</span>
                       </button>
                     );
                   })}
@@ -214,7 +214,7 @@ export function GenerationControls() {
                       <div className="space-y-2">
                         <label
                           htmlFor="negative-prompt"
-                          className="text-xs font-medium text-neutral-700"
+                          className="text-xs font-semibold text-neutral-700"
                         >
                           Negative Prompt
                         </label>
@@ -235,10 +235,10 @@ export function GenerationControls() {
                     {caps?.guidanceScale && (
                       <div className="space-y-3">
                         <div className="flex items-center justify-between">
-                          <span className="text-xs font-medium text-neutral-700">
+                          <span className="text-xs font-semibold text-neutral-700">
                             Guidance Scale
                           </span>
-                          <span className="font-sans text-xs font-semibold text-brand-blue bg-blue-50 px-2 py-0.5 rounded-md">
+                          <span className="font-sans text-xs font-bold text-[#0071E3] bg-[#0071E3]/10 px-2 py-0.5 rounded-md">
                             {state.guidanceScale}
                           </span>
                         </div>
@@ -257,10 +257,10 @@ export function GenerationControls() {
                     {caps?.numInferenceSteps && (
                       <div className="space-y-3">
                         <div className="flex items-center justify-between">
-                          <span className="text-xs font-medium text-neutral-700">
+                          <span className="text-xs font-semibold text-neutral-700">
                             Inference Steps
                           </span>
-                          <span className="font-sans text-xs font-semibold text-brand-blue bg-blue-50 px-2 py-0.5 rounded-md">
+                          <span className="font-sans text-xs font-bold text-[#0071E3] bg-[#0071E3]/10 px-2 py-0.5 rounded-md">
                             {state.numInferenceSteps}
                           </span>
                         </div>
@@ -279,13 +279,13 @@ export function GenerationControls() {
                     {caps?.seed && (
                       <div className="space-y-3">
                         <div className="flex items-center justify-between">
-                          <span className="text-xs font-medium text-neutral-700">
+                          <span className="text-xs font-semibold text-neutral-700">
                             Seed
                           </span>
                           <button
                             type="button"
                             onClick={() => setSeed(String(Math.floor(Math.random() * 2147483647)))}
-                            className="flex items-center gap-1.5 text-xs font-medium text-brand-blue hover:text-blue-700 transition-colors"
+                            className="flex items-center gap-1.5 text-xs font-semibold text-[#0071E3] hover:text-[#005bb5] transition-colors"
                           >
                             <Shuffle className="size-3" strokeWidth={2.5} />
                             Randomize
@@ -298,7 +298,7 @@ export function GenerationControls() {
                             value={state.seed}
                             onChange={(e) => setSeed(e.target.value.replace(/\D/g, ""))}
                             placeholder="Random"
-                            className="w-full rounded-xl border-0 bg-black/5 px-4 py-2.5 font-sans text-sm text-black placeholder:text-neutral-400 focus:outline-none focus:bg-black/5"
+                            className="w-full rounded-xl border-0 bg-black/5 px-4 py-2.5 font-mono text-sm text-black placeholder:text-neutral-400 focus:outline-none focus:bg-black/5"
                           />
                         </div>
                       </div>
@@ -308,10 +308,10 @@ export function GenerationControls() {
                     {caps?.safetyTolerance && (
                       <div className="space-y-3">
                         <div className="flex items-center justify-between">
-                          <span className="text-xs font-medium text-neutral-700">
+                          <span className="text-xs font-semibold text-neutral-700">
                             Safety Tolerance
                           </span>
-                          <span className="font-sans text-xs font-semibold text-brand-blue bg-blue-50 px-2 py-0.5 rounded-md">
+                          <span className="font-sans text-xs font-bold text-[#0071E3] bg-[#0071E3]/10 px-2 py-0.5 rounded-md">
                             {state.safetyTolerance}
                           </span>
                         </div>
@@ -324,8 +324,8 @@ export function GenerationControls() {
                           className="w-full"
                         />
                         <div className="flex justify-between px-1">
-                          <span className="text-[10px] font-medium text-neutral-400">Strict</span>
-                          <span className="text-[10px] font-medium text-neutral-400">Permissive</span>
+                          <span className="text-[10px] font-semibold text-neutral-400">Strict</span>
+                          <span className="text-[10px] font-semibold text-neutral-400">Permissive</span>
                         </div>
                       </div>
                     )}
@@ -333,13 +333,13 @@ export function GenerationControls() {
                     {/* Safety Checker toggle — fal dev/realism only */}
                     {caps?.enableSafetyChecker && (
                       <div className="flex items-center justify-between p-3 rounded-xl bg-black/5">
-                        <span className="text-sm font-medium text-neutral-700">
+                        <span className="text-sm font-semibold text-neutral-700">
                           Safety Checker
                         </span>
                         <Switch
                           checked={state.enableSafetyChecker}
                           onCheckedChange={setEnableSafetyChecker}
-                          className="data-[state=checked]:bg-brand-blue"
+                          className="data-[state=checked]:bg-[#0071E3]"
                         />
                       </div>
                     )}
@@ -347,13 +347,13 @@ export function GenerationControls() {
                     {/* Enhance Prompt toggle — vertex imagen models */}
                     {caps?.enhancePrompt && (
                       <div className="flex items-center justify-between p-3 rounded-xl bg-black/5">
-                        <span className="text-sm font-medium text-neutral-700">
+                        <span className="text-sm font-semibold text-neutral-700">
                           Enhance Prompt
                         </span>
                         <Switch
                           checked={state.enhancePrompt}
                           onCheckedChange={setEnhancePrompt}
-                          className="data-[state=checked]:bg-brand-blue"
+                          className="data-[state=checked]:bg-[#0071E3]"
                         />
                       </div>
                     )}
@@ -361,7 +361,7 @@ export function GenerationControls() {
                     {/* Person Generation — vertex imagen models */}
                     {caps?.personGeneration && (
                       <div className="space-y-3">
-                        <span className="text-xs font-medium text-neutral-700">
+                        <span className="text-xs font-semibold text-neutral-700">
                           Person Generation
                         </span>
                         <div className="flex gap-2 p-1 bg-black/5 rounded-xl">
@@ -375,7 +375,7 @@ export function GenerationControls() {
                               type="button"
                               onClick={() => setPersonGeneration(opt.value)}
                               className={cn(
-                                "flex-1 py-1.5 text-xs font-medium rounded-lg transition-all",
+                                "flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all",
                                 state.personGeneration === opt.value
                                   ? "bg-white text-black shadow-sm"
                                   : "text-neutral-500 hover:text-black"
@@ -390,7 +390,7 @@ export function GenerationControls() {
 
                     {/* Number of Images — always available */}
                     <div className="space-y-3">
-                      <span className="text-xs font-medium text-neutral-700">
+                      <span className="text-xs font-semibold text-neutral-700">
                         Batch Size
                       </span>
                       <div className="flex gap-2 p-1 bg-black/5 rounded-xl">
@@ -400,7 +400,7 @@ export function GenerationControls() {
                             type="button"
                             onClick={() => setNumberOfImages(n)}
                             className={cn(
-                              "flex-1 py-1.5 text-sm font-semibold rounded-lg transition-all",
+                              "flex-1 py-1.5 text-sm font-bold rounded-lg transition-all",
                               state.numberOfImages === n
                                 ? "bg-white text-black shadow-sm"
                                 : "text-neutral-500 hover:text-black"
@@ -414,8 +414,8 @@ export function GenerationControls() {
 
                     {/* Hint when no provider-specific controls */}
                     {!hasAdvancedControls && (
-                      <div className="p-4 rounded-xl bg-blue-50 border border-blue-100">
-                        <p className="text-xs font-medium text-brand-blue text-center">
+                      <div className="p-4 rounded-xl bg-[#0071E3]/5 border border-[#0071E3]/10">
+                        <p className="text-xs font-semibold text-[#0071E3] text-center">
                           This specific model does not expose additional tuning parameters.
                         </p>
                       </div>

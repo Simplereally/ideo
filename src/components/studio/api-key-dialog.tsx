@@ -97,13 +97,23 @@ export function ApiKeyDialog() {
         <div className="space-y-8">
           {/* Google AI Studio Key */}
           <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <div className="flex size-6 items-center justify-center rounded-full bg-blue-50 text-brand-blue">
-                <KeyRound className="size-3" strokeWidth={2.5} />
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="flex size-6 items-center justify-center rounded-full bg-blue-50 text-brand-blue">
+                  <KeyRound className="size-3" strokeWidth={2.5} />
+                </div>
+                <Label className="font-sans text-sm font-semibold text-black">
+                  Google AI Studio
+                </Label>
               </div>
-              <Label className="font-sans text-sm font-semibold text-black">
-                Google AI Studio
-              </Label>
+              {googleApiKey ? (
+                <span className="flex items-center gap-1.5 rounded-full bg-green-50 px-2.5 py-1 text-[10px] font-semibold text-green-600">
+                  <span className="size-1.5 rounded-full bg-green-500" />
+                  Connected
+                </span>
+              ) : (
+                <span className="rounded-full bg-black/5 px-2.5 py-1 text-[10px] font-medium text-neutral-400">Not set</span>
+              )}
             </div>
             
             <div className="relative">
@@ -138,13 +148,23 @@ export function ApiKeyDialog() {
 
           {/* Vertex AI */}
           <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <div className="flex size-6 items-center justify-center rounded-full bg-green-50 text-green-600">
-                <Cloud className="size-3" strokeWidth={2.5} />
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="flex size-6 items-center justify-center rounded-full bg-green-50 text-green-600">
+                  <Cloud className="size-3" strokeWidth={2.5} />
+                </div>
+                <Label className="font-sans text-sm font-semibold text-black">
+                  Google Vertex AI
+                </Label>
               </div>
-              <Label className="font-sans text-sm font-semibold text-black">
-                Google Vertex AI
-              </Label>
+              {vertexAccessToken && vertexProjectId ? (
+                <span className="flex items-center gap-1.5 rounded-full bg-green-50 px-2.5 py-1 text-[10px] font-semibold text-green-600">
+                  <span className="size-1.5 rounded-full bg-green-500" />
+                  Connected
+                </span>
+              ) : (
+                <span className="rounded-full bg-black/5 px-2.5 py-1 text-[10px] font-medium text-neutral-400">Not set</span>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -219,13 +239,23 @@ export function ApiKeyDialog() {
 
           {/* Fal AI Key */}
           <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <div className="flex size-6 items-center justify-center rounded-full bg-purple-50 text-purple-600">
-                <ImageIcon className="size-3" strokeWidth={2.5} />
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="flex size-6 items-center justify-center rounded-full bg-purple-50 text-purple-600">
+                  <ImageIcon className="size-3" strokeWidth={2.5} />
+                </div>
+                <Label className="font-sans text-sm font-semibold text-black">
+                  Fal AI
+                </Label>
               </div>
-              <Label className="font-sans text-sm font-semibold text-black">
-                Fal AI
-              </Label>
+              {falApiKey ? (
+                <span className="flex items-center gap-1.5 rounded-full bg-green-50 px-2.5 py-1 text-[10px] font-semibold text-green-600">
+                  <span className="size-1.5 rounded-full bg-green-500" />
+                  Connected
+                </span>
+              ) : (
+                <span className="rounded-full bg-black/5 px-2.5 py-1 text-[10px] font-medium text-neutral-400">Not set</span>
+              )}
             </div>
             
             <div className="relative">
