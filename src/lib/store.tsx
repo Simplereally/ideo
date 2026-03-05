@@ -12,17 +12,19 @@ import {
   MODELS,
   getModelsForProvider,
   getDefaultModelForProvider,
+  getModelConfig,
   type AspectRatio,
   type GenerationStatus,
   type GeneratedImage,
   type Provider,
+  type VideoShotType,
 } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
 
-interface StudioState {
+export interface StudioState {
   // API config
   provider: Provider;
   // Generation config
@@ -40,6 +42,14 @@ interface StudioState {
   // Provider-specific (google/vertex imagen)
   enhancePrompt: boolean;
   personGeneration: string; // "DONT_ALLOW" | "ALLOW_ADULT" | "ALLOW_ALL"
+  // Video-specific params
+  duration: number;
+  videoResolution: string;
+  videoAspectRatio: string;
+  generateAudio: boolean;
+  videoImageUrl: string;
+  videoAudioUrl: string;
+  videoShotType: VideoShotType;
   // Status
   status: GenerationStatus;
   error: string | null;
@@ -53,12 +63,12 @@ interface StudioState {
   isImageViewerOpen: boolean;
 }
 
-const initialState: StudioState = {
-  provider: "google",
+export const initialState: StudioState = {
+  provider: "aiml",
   prompt: "",
   negativePrompt: "",
-  aspectRatio: "1:1",
-  model: MODELS[0].id,
+  aspectRatio: "9:16",
+  model: "aiml:x-ai/grok-2-image",
   numberOfImages: 1,
   guidanceScale: 3.5,
   numInferenceSteps: 28,
@@ -67,6 +77,15 @@ const initialState: StudioState = {
   enableSafetyChecker: true,
   enhancePrompt: false,
   personGeneration: "ALLOW_ADULT",
+  // Video defaults
+  duration: 5,
+  videoResolution: "720p",
+  videoAspectRatio: "16:9",
+  generateAudio: false,
+  videoImageUrl: "",
+  videoAudioUrl: "",
+  videoShotType: "single",
+  // Status
   status: "idle",
   error: null,
   history: [],
@@ -81,7 +100,7 @@ const initialState: StudioState = {
 // Actions
 // ---------------------------------------------------------------------------
 
-type StudioAction =
+export type StudioAction =
   | { type: "SET_PROVIDER"; payload: Provider }
   | { type: "SET_PROMPT"; payload: string }
   | { type: "SET_NEGATIVE_PROMPT"; payload: string }
@@ -95,6 +114,15 @@ type StudioAction =
   | { type: "SET_MODEL"; payload: string }
   | { type: "SET_NUMBER_OF_IMAGES"; payload: number }
   | { type: "SET_GUIDANCE_SCALE"; payload: number }
+  // Video-specific actions
+  | { type: "SET_DURATION"; payload: number }
+  | { type: "SET_VIDEO_RESOLUTION"; payload: string }
+  | { type: "SET_VIDEO_ASPECT_RATIO"; payload: string }
+  | { type: "SET_GENERATE_AUDIO"; payload: boolean }
+  | { type: "SET_VIDEO_IMAGE_URL"; payload: string }
+  | { type: "SET_VIDEO_AUDIO_URL"; payload: string }
+  | { type: "SET_VIDEO_SHOT_TYPE"; payload: VideoShotType }
+  // Lifecycle
   | { type: "START_GENERATION" }
   | { type: "COMPLETE_GENERATION"; payload: GeneratedImage }
   | { type: "FAIL_GENERATION"; payload: string }
@@ -109,14 +137,59 @@ type StudioAction =
   | { type: "HYDRATE"; payload: { history: GeneratedImage[] } };
 
 // ---------------------------------------------------------------------------
+// Helpers — kind-specific defaults
+// ---------------------------------------------------------------------------
+
+/**
+ * Compute the state overrides that should be applied whenever a model is
+ * selected (whether via SET_MODEL or implicitly through SET_PROVIDER).
+ *
+ * For video models this resets video params to the model's first available
+ * option and forces numberOfImages to 1 (videos are always single-output).
+ * For image models this is a no-op — we intentionally preserve the user's
+ * current image settings when switching between image models.
+ */
+export function applyModelDefaults(
+  model: ReturnType<typeof getModelConfig>,
+): Partial<StudioState> {
+  if (!model) return {};
+
+  const caps = model.capabilities;
+  const overrides: Partial<StudioState> = {};
+
+  // Reset numInferenceSteps to the new model's default (or the global
+  // initial value when the model doesn't expose the slider at all).
+  // This prevents a stale value from a different model being sent to
+  // an API with a stricter range (e.g. Z Image Turbo accepts 1-8).
+  if (caps?.numInferenceSteps) {
+    overrides.numInferenceSteps = caps.numInferenceSteps.default;
+  } else {
+    overrides.numInferenceSteps = initialState.numInferenceSteps;
+  }
+
+  if (model.kind === "video") {
+    overrides.duration = caps?.durationOptions?.[0] ?? initialState.duration;
+    overrides.videoResolution = caps?.resolutionOptions?.[0] ?? initialState.videoResolution;
+    overrides.videoAspectRatio = caps?.videoAspectRatios?.[0] ?? initialState.videoAspectRatio;
+    overrides.generateAudio = false;
+    overrides.videoImageUrl = "";
+    overrides.videoAudioUrl = "";
+    overrides.videoShotType = "single";
+    overrides.numberOfImages = 1;
+  }
+
+  return overrides;
+}
+
+// ---------------------------------------------------------------------------
 // Reducer
 // ---------------------------------------------------------------------------
 
-function studioReducer(state: StudioState, action: StudioAction): StudioState {
+export function studioReducer(state: StudioState, action: StudioAction): StudioState {
   switch (action.type) {
     case "SET_PROVIDER": {
       const newProvider = action.payload;
-      // If current model doesn't belong to new provider, pick the first model for it
+      // If current model already belongs to new provider, nothing to change
       const currentModel = MODELS.find((m) => m.id === state.model);
       if (currentModel?.provider === newProvider) {
         return { ...state, provider: newProvider };
@@ -126,6 +199,7 @@ function studioReducer(state: StudioState, action: StudioAction): StudioState {
         ...state,
         provider: newProvider,
         model: defaultModel?.id ?? state.model,
+        ...applyModelDefaults(defaultModel),
       };
     }
     case "SET_PROMPT":
@@ -151,13 +225,29 @@ function studioReducer(state: StudioState, action: StudioAction): StudioState {
       return { 
         ...state, 
         model: action.payload,
-        provider: selectedModel ? selectedModel.provider : state.provider
+        provider: selectedModel ? selectedModel.provider : state.provider,
+        ...applyModelDefaults(selectedModel),
       };
     }
     case "SET_NUMBER_OF_IMAGES":
       return { ...state, numberOfImages: action.payload };
     case "SET_GUIDANCE_SCALE":
       return { ...state, guidanceScale: action.payload };
+    // Video-specific reducers
+    case "SET_DURATION":
+      return { ...state, duration: action.payload };
+    case "SET_VIDEO_RESOLUTION":
+      return { ...state, videoResolution: action.payload };
+    case "SET_VIDEO_ASPECT_RATIO":
+      return { ...state, videoAspectRatio: action.payload };
+    case "SET_GENERATE_AUDIO":
+      return { ...state, generateAudio: action.payload };
+    case "SET_VIDEO_IMAGE_URL":
+      return { ...state, videoImageUrl: action.payload };
+    case "SET_VIDEO_AUDIO_URL":
+      return { ...state, videoAudioUrl: action.payload };
+    case "SET_VIDEO_SHOT_TYPE":
+      return { ...state, videoShotType: action.payload };
     case "START_GENERATION":
       return { ...state, status: "generating", error: null };
     case "COMPLETE_GENERATION":
@@ -219,6 +309,15 @@ interface StudioContextValue {
   setModel: (model: string) => void;
   setNumberOfImages: (n: number) => void;
   setGuidanceScale: (scale: number) => void;
+  // Video-specific setters
+  setDuration: (d: number) => void;
+  setVideoResolution: (r: string) => void;
+  setVideoAspectRatio: (r: string) => void;
+  setGenerateAudio: (enabled: boolean) => void;
+  setVideoImageUrl: (url: string) => void;
+  setVideoAudioUrl: (url: string) => void;
+  setVideoShotType: (t: VideoShotType) => void;
+  // Lifecycle
   startGeneration: () => void;
   completeGeneration: (image: GeneratedImage) => void;
   failGeneration: (error: string) => void;
@@ -243,9 +342,12 @@ const StudioContext = createContext<StudioContextValue | null>(null);
 export function StudioProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(studioReducer, initialState);
 
-  // Hydrate from localStorage on mount
+  // Hydrate from localStorage on mount + purge legacy secrets
   useEffect(() => {
     try {
+      // One-time cleanup: remove legacy key that stored client-side API secrets.
+      localStorage.removeItem("ideo-settings");
+
       const storedHistory = localStorage.getItem("ideo-history");
       dispatch({
         type: "HYDRATE",
@@ -321,6 +423,35 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     (scale: number) => dispatch({ type: "SET_GUIDANCE_SCALE", payload: scale }),
     [],
   );
+  // Video-specific action creators
+  const setDuration = useCallback(
+    (d: number) => dispatch({ type: "SET_DURATION", payload: d }),
+    [],
+  );
+  const setVideoResolution = useCallback(
+    (r: string) => dispatch({ type: "SET_VIDEO_RESOLUTION", payload: r }),
+    [],
+  );
+  const setVideoAspectRatio = useCallback(
+    (r: string) => dispatch({ type: "SET_VIDEO_ASPECT_RATIO", payload: r }),
+    [],
+  );
+  const setGenerateAudio = useCallback(
+    (enabled: boolean) => dispatch({ type: "SET_GENERATE_AUDIO", payload: enabled }),
+    [],
+  );
+  const setVideoImageUrl = useCallback(
+    (url: string) => dispatch({ type: "SET_VIDEO_IMAGE_URL", payload: url }),
+    [],
+  );
+  const setVideoAudioUrl = useCallback(
+    (url: string) => dispatch({ type: "SET_VIDEO_AUDIO_URL", payload: url }),
+    [],
+  );
+  const setVideoShotType = useCallback(
+    (t: VideoShotType) => dispatch({ type: "SET_VIDEO_SHOT_TYPE", payload: t }),
+    [],
+  );
   const startGeneration = useCallback(
     () => dispatch({ type: "START_GENERATION" }),
     [],
@@ -392,6 +523,13 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     setModel,
     setNumberOfImages,
     setGuidanceScale,
+    setDuration,
+    setVideoResolution,
+    setVideoAspectRatio,
+    setGenerateAudio,
+    setVideoImageUrl,
+    setVideoAudioUrl,
+    setVideoShotType,
     startGeneration,
     completeGeneration,
     failGeneration,

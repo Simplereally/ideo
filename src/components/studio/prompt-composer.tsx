@@ -1,61 +1,160 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { Sparkles, Image as ImageIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useStudio } from "@/lib/store";
-import { useSettingsStore } from "@/store/settings";
-import { cn } from "@/lib/utils";
-import { MODELS, getModelConfig, PROVIDER_SHORT_LABELS } from "@/lib/types";
-import type { GeneratedImage, Provider } from "@/lib/types";
-import { toast } from "sonner";
-import { GoogleGenAI } from "@google/genai";
-import { fal } from "@fal-ai/client";
-import { motion, AnimatePresence } from "framer-motion";
 
-const uploadToR2 = async (blob: Blob, ext: string): Promise<string> => {
-  const res = await fetch("/api/upload", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      fileName: `upload.${ext}`,
-      contentType: blob.type,
-    }),
-  });
-  
-  if (!res.ok) throw new Error("Failed to get presigned URL");
-  const { url } = await res.json();
-  
-  const uploadRes = await fetch(url, {
-    method: "PUT",
-    body: blob,
-    headers: { "Content-Type": blob.type },
-  });
-  
-  if (!uploadRes.ok) throw new Error("Failed to upload to R2");
-  
-  return url.split("?")[0]; 
-};
+import { cn } from "@/lib/utils";
+import { MODELS, getModelConfig, getMaxPromptLength, PROVIDER_SHORT_LABELS } from "@/lib/types";
+import type { GeneratedImage, Provider, VideoRequestParams, VideoJob } from "@/lib/types";
+import { toast } from "sonner";
+import type { ImageGenerationRequest, ImageGenerationResponse } from "@/lib/types/generation";
+import { motion, AnimatePresence } from "framer-motion";
+import { createVideoGeneration, getVideoGeneration } from "@/lib/services/aiml-video";
+import { pollVideoGeneration } from "@/lib/services/video-polling";
+import type { PollHandle } from "@/lib/services/video-polling";
+import { useVideoJobsStore, getActiveJobs } from "@/store/video-jobs";
+import { useImageJobsStore, getActiveImageJobs } from "@/store/image-jobs";
+import type { ImageJob } from "@/store/image-jobs";
+import { useSettingsStore } from "@/store/settings";
+import { buildProviderCredentials, injectCredentials } from "@/lib/services/provider-credentials";
+import { PendingImageJobsStrip } from "./pending-image-jobs-strip";
+
+
+
+/** Max retry attempts for persisted image job recovery. */
+const MAX_IMAGE_JOB_ATTEMPTS = 2;
 
 export function PromptComposer() {
   const {
     state,
     setPrompt,
-    startGeneration,
     completeGeneration,
-    failGeneration,
-    openApiKeyDialog,
     toggleControls,
   } = useStudio();
-  const {
-    googleApiKey,
-    falApiKey,
-    vertexProjectId,
-    vertexLocation,
-    vertexAccessToken,
-  } = useSettingsStore();
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Derive max prompt length from the currently-selected model's capabilities.
+  const maxPromptLength = useMemo(() => getMaxPromptLength(state.model), [state.model]);
+
+  // --- Double-submit guard for video creation ---
+  const [isSubmittingVideo, setIsSubmittingVideo] = useState(false);
+
+  // --- Video polling lifecycle ---
+  const pollHandlesRef = useRef<Map<string, PollHandle>>(new Map());
+  const { addJob, setJobStatus, markJobCompleted, markJobError } =
+    useVideoJobsStore();
+
+  // --- Image jobs store ---
+  const {
+    addJob: addImageJob,
+    startJob: startImageJob,
+    markJobCompleted: markImageJobCompleted,
+    markJobError: markImageJobError,
+  } = useImageJobsStore();
+
+  // --- AbortController map for in-flight image requests ---
+  const imageAbortRef = useRef<Map<string, AbortController>>(new Map());
+
+  // ---- Helper: start polling a single job by id ----
+  const startPollingJob = useCallback(
+    (jobId: string) => {
+      // Don't start duplicate poll handles
+      if (pollHandlesRef.current.has(jobId)) return;
+
+      const handle = pollVideoGeneration(
+        () => getVideoGeneration(jobId),
+        {
+          onStatus: (status, result) => {
+            // (b) Prevent overwrite race: check current store status before applying
+            const currentJob = useVideoJobsStore.getState().jobs.find((j) => j.id === jobId);
+            if (currentJob?.status === "cancelled") {
+              // Job was cancelled locally — ignore poll update and clean up
+              pollHandlesRef.current.get(jobId)?.cancel();
+              pollHandlesRef.current.delete(jobId);
+              return;
+            }
+
+            if (status === "completed" && result.videoUrl) {
+              markJobCompleted(jobId, result.videoUrl);
+              toast.success("Video ready!", {
+                description: `Job ${jobId.slice(0, 8)}...`,
+              });
+              pollHandlesRef.current.delete(jobId);
+            } else if (status === "error") {
+              markJobError(jobId, result.error ?? "Video generation failed");
+              toast.error("Video generation failed", {
+                description: result.error ?? "Unknown error",
+              });
+              pollHandlesRef.current.delete(jobId);
+            } else if (status === "cancelled") {
+              setJobStatus(jobId, "cancelled");
+              pollHandlesRef.current.delete(jobId);
+            } else {
+              // In-progress status update (queued -> generating, etc.)
+              setJobStatus(jobId, status);
+            }
+          },
+        },
+      );
+
+      pollHandlesRef.current.set(jobId, handle);
+
+      // Handle timeout resolution from the promise
+      handle.promise.then((finalResult) => {
+        if (pollHandlesRef.current.has(jobId)) {
+          pollHandlesRef.current.delete(jobId);
+          if (finalResult.status === "error" && finalResult.error?.includes("timed out")) {
+            markJobError(jobId, finalResult.error);
+            toast.error("Video generation timed out", {
+              description: finalResult.error,
+            });
+          }
+        }
+      });
+    },
+    [markJobCompleted, markJobError, setJobStatus],
+  );
+
+  // (a) Resume polling for persisted active jobs on mount
+  // P10: No client API key needed — polling routes through server proxy.
+  useEffect(() => {
+    const activeJobs = getActiveJobs(useVideoJobsStore.getState());
+    for (const job of activeJobs) {
+      startPollingJob(job.id);
+    }
+  }, [startPollingJob]);
+
+  // (c) Subscribe to store changes and cancel handles for jobs moved to cancelled
+  useEffect(() => {
+    const unsub = useVideoJobsStore.subscribe((state, prevState) => {
+      for (const job of state.jobs) {
+        if (job.status === "cancelled") {
+          const prevJob = prevState.jobs.find((j) => j.id === job.id);
+          if (prevJob && prevJob.status !== "cancelled") {
+            // Job just transitioned to cancelled — stop its poll handle
+            const handle = pollHandlesRef.current.get(job.id);
+            if (handle) {
+              handle.cancel();
+              pollHandlesRef.current.delete(job.id);
+            }
+          }
+        }
+      }
+    });
+    return unsub;
+  }, []);
+
+  // Cancel all active polls on unmount
+  useEffect(() => {
+    const handles = pollHandlesRef.current;
+    return () => {
+      handles.forEach((h) => h.cancel());
+      handles.clear();
+    };
+  }, []);
 
   const [isMac, setIsMac] = useState(false);
   useEffect(() => {
@@ -73,234 +172,321 @@ export function PromptComposer() {
     el.style.height = `${Math.min(el.scrollHeight, 240)}px`;
   }
 
-  const handleGenerate = useCallback(async () => {
-    if (state.provider === "google" && !googleApiKey) {
-      toast.error("Google AI Studio API Key is missing");
-      openApiKeyDialog();
-      return;
-    }
-    if (state.provider === "vertex" && (!vertexAccessToken || !vertexProjectId)) {
-      toast.error("Vertex AI credentials are missing");
-      openApiKeyDialog();
-      return;
-    }
-    if (state.provider === "fal" && !falApiKey) {
-      toast.error("Fal AI API Key is missing");
-      openApiKeyDialog();
-      return;
-    }
-    if (!state.prompt.trim()) return;
-    if (state.status === "generating") return;
+  // ---------------------------------------------------------------------------
+  // Video generation — non-blocking, fire-and-forget with polling
+  // ---------------------------------------------------------------------------
+  const handleVideoGenerate = useCallback(async () => {
+    const prompt = state.prompt.trim();
+    if (!prompt) return;
 
-    startGeneration();
+    // Double-submit guard
+    if (isSubmittingVideo) return;
 
-    const capturedState = {
-      prompt: state.prompt,
-      negativePrompt: state.negativePrompt,
-      aspectRatio: state.aspectRatio,
-      model: state.model,
-      provider: state.provider,
-      guidanceScale: state.guidanceScale,
-      numberOfImages: state.numberOfImages,
-      numInferenceSteps: state.numInferenceSteps,
-      seed: state.seed,
-      safetyTolerance: state.safetyTolerance,
-      enableSafetyChecker: state.enableSafetyChecker,
-      enhancePrompt: state.enhancePrompt,
-      personGeneration: state.personGeneration,
-    };
+    const modelConfig = getModelConfig(state.model);
+    if (!modelConfig || modelConfig.kind !== "video") return;
 
+    const caps = modelConfig.capabilities;
+    const apiModelId = modelConfig.value;
+
+    // Build VideoRequestParams — only include capability-supported fields
+    const params: VideoRequestParams = { prompt };
+
+    if (caps.negativePrompt && state.negativePrompt) {
+      params.negativePrompt = state.negativePrompt;
+    }
+    if (caps.durationOptions?.length) {
+      params.duration = state.duration;
+    }
+    if (caps.resolutionOptions?.length) {
+      params.resolution = state.videoResolution;
+    }
+    if (caps.videoAspectRatios?.length) {
+      params.aspectRatio = state.videoAspectRatio;
+    }
+    if (caps.generateAudio) {
+      params.generateAudio = state.generateAudio;
+    }
+    if (caps.enhancePrompt) {
+      params.enhancePrompt = state.enhancePrompt;
+    }
+    if (caps.seed && state.seed) {
+      params.seed = parseInt(state.seed, 10);
+    }
+
+    setIsSubmittingVideo(true);
     try {
-      let finalImageUrl = "";
+      // Snapshot BYOK credentials for the active provider (aiml for video).
+      const credentials = buildProviderCredentials(
+        state.provider,
+        useSettingsStore.getState(),
+      );
 
-      const finalPrompt = capturedState.prompt;
-      const currentModelConfig = getModelConfig(capturedState.model);
-      const caps = currentModelConfig?.capabilities;
-      const apiModelId = currentModelConfig?.value ?? capturedState.model;
+      const createResult = await createVideoGeneration({
+        model: apiModelId,
+        params,
+        credentials,
+      });
 
-      if (capturedState.provider === "google") {
-        const ai = new GoogleGenAI({ apiKey: googleApiKey });
-
-        const config: Record<string, unknown> = {
-          numberOfImages: 1,
-          aspectRatio: capturedState.aspectRatio,
-          outputMimeType: "image/jpeg",
-        };
-
-        if (caps?.seed && capturedState.seed) {
-          config.seed = parseInt(capturedState.seed, 10);
-        }
-
-        if (caps?.negativePrompt && capturedState.negativePrompt) {
-          config.negativePrompt = capturedState.negativePrompt;
-        }
-
-        const response = await ai.models.generateImages({
-          model: apiModelId,
-          prompt: finalPrompt,
-          config,
-        });
-
-        const base64 = response.generatedImages?.[0]?.image?.imageBytes;
-        if (!base64) throw new Error("No image generated by Google");
-
-        // Convert base64 to Blob
-        const fetchRes = await fetch(`data:image/jpeg;base64,${base64}`);
-        const blob = await fetchRes.blob();
-
-        try {
-          finalImageUrl = await uploadToR2(blob, "jpg");
-        } catch (e) {
-          console.warn("R2 upload failed, falling back to data URL", e);
-          finalImageUrl = `data:image/jpeg;base64,${base64}`;
-        }
-      } else if (capturedState.provider === "vertex") {
-        const token = vertexAccessToken;
-        const config: Record<string, unknown> = {
-          sampleCount: 1,
-          aspectRatio: capturedState.aspectRatio,
-          addWatermark: false,
-        };
-
-        if (caps?.seed && capturedState.seed) {
-          config.seed = parseInt(capturedState.seed, 10);
-        }
-
-        if (caps?.negativePrompt && capturedState.negativePrompt) {
-          config.negativePrompt = capturedState.negativePrompt;
-        }
-
-        if (caps?.enhancePrompt) {
-          config.enhancePrompt = capturedState.enhancePrompt;
-        }
-
-        if (caps?.personGeneration) {
-          config.personGeneration = capturedState.personGeneration;
-        }
-
-        const response = await fetch(
-          `https://${vertexLocation}-aiplatform.googleapis.com/v1/projects/${vertexProjectId}/locations/${vertexLocation}/publishers/google/models/${apiModelId}:predict`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({
-              instances: [{ prompt: finalPrompt }],
-              parameters: config,
-            }),
-          }
-        );
-        
-        const data = await response.json();
-        if (!response.ok) {
-          throw new Error(data.error?.message || "Failed to generate via Vertex");
-        }
-        
-        const base64 = data.predictions?.[0]?.bytesBase64Encoded;
-        if (!base64) throw new Error("No image generated by Vertex");
-        const mimeType = data.predictions?.[0]?.mimeType || "image/png";
-
-        const fetchRes = await fetch(`data:${mimeType};base64,${base64}`);
-        const blob = await fetchRes.blob();
-
-        try {
-          const ext = mimeType === "image/jpeg" ? "jpg" : "png";
-          finalImageUrl = await uploadToR2(blob, ext);
-        } catch (e) {
-          console.warn("R2 upload failed, falling back to data URL", e);
-          finalImageUrl = `data:${mimeType};base64,${base64}`;
-        }
-      } else if (capturedState.provider === "fal") {
-        fal.config({ credentials: falApiKey });
-
-        // Map aspect ratio for fal
-        let imageSize = "square_hd";
-        if (capturedState.aspectRatio === "16:9") imageSize = "landscape_16_9";
-        if (capturedState.aspectRatio === "9:16") imageSize = "portrait_16_9";
-        if (capturedState.aspectRatio === "4:3") imageSize = "landscape_4_3";
-        if (capturedState.aspectRatio === "3:4") imageSize = "portrait_4_3";
-
-        const falInput: Record<string, unknown> = {
-          prompt: finalPrompt,
-          image_size: imageSize,
-          num_images: 1,
-        };
-
-        // Only send params the model actually supports
-        if (caps?.guidanceScale) {
-          falInput.guidance_scale = capturedState.guidanceScale;
-        }
-        if (caps?.numInferenceSteps) {
-          falInput.num_inference_steps = capturedState.numInferenceSteps;
-        }
-        if (caps?.seed && capturedState.seed) {
-          falInput.seed = parseInt(capturedState.seed, 10);
-        }
-        if (caps?.safetyTolerance) {
-          falInput.safety_tolerance = String(capturedState.safetyTolerance);
-        }
-        if (caps?.enableSafetyChecker !== undefined) {
-          falInput.enable_safety_checker = capturedState.enableSafetyChecker;
-        }
-
-        const result = await fal.subscribe(apiModelId, {
-          input: falInput,
-        });
-
-        // @ts-ignore - fal types don't expose images correctly
-        if (!result.images?.[0]?.url)
-          throw new Error("No image generated by Fal");
-        // @ts-ignore
-        finalImageUrl = result.images[0].url;
-      }
-
-      const image: GeneratedImage = {
-        id: crypto.randomUUID(),
-        prompt: capturedState.prompt,
-        negativePrompt: capturedState.negativePrompt || undefined,
-        imageUrl: finalImageUrl,
-        aspectRatio: capturedState.aspectRatio,
-        model: capturedState.model,
-        provider: capturedState.provider,
-        createdAt: Date.now(),
+      const now = Date.now();
+      const job: VideoJob = {
+        id: createResult.id,
+        model: state.model,
+        provider: state.provider,
+        prompt,
+        params,
+        status: createResult.status,
+        createdAt: now,
+        updatedAt: now,
       };
 
-      completeGeneration(image);
+      addJob(job);
+      toast.success("Video generation submitted", {
+        description: `Job ${createResult.id.slice(0, 8)}... is queued.`,
+      });
+
+      // Clear prompt so the composer is ready for the next one
       setPrompt("");
       if (textareaRef.current) textareaRef.current.style.height = "auto";
-    } catch (error: any) {
-      console.error(error);
-      failGeneration(error.message || "Failed to generate image");
-      toast.error(error.message || "Generation failed");
+
+      // Start non-blocking polling
+      startPollingJob(createResult.id);
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : "Failed to start video generation";
+      toast.error(message);
+    } finally {
+      setIsSubmittingVideo(false);
     }
   }, [
-    state,
-    googleApiKey,
-    falApiKey,
-    vertexProjectId,
-    vertexLocation,
-    vertexAccessToken,
-    startGeneration,
-    completeGeneration,
-    failGeneration,
-    openApiKeyDialog,
+    state.prompt,
+    state.negativePrompt,
+    state.model,
+    state.provider,
+    state.duration,
+    state.videoResolution,
+    state.videoAspectRatio,
+    state.generateAudio,
+    state.enhancePrompt,
+    state.seed,
+    isSubmittingVideo,
     setPrompt,
+    addJob,
+    startPollingJob,
   ]);
 
-  const isGenerating = state.status === "generating";
+  // ---------------------------------------------------------------------------
+  // Image generation — fire a single image fetch for a given job
+  // ---------------------------------------------------------------------------
+  const executeImageJob = useCallback(
+    (job: ImageJob) => {
+      // Abort if already cancelled
+      if (useImageJobsStore.getState().jobs.find((j) => j.id === job.id)?.status === "cancelled") return;
+
+      startImageJob(job.id);
+
+      const controller = new AbortController();
+      imageAbortRef.current.set(job.id, controller);
+
+      const providerRoute = `/api/generate/${job.provider}`;
+      const credentials = buildProviderCredentials(
+        job.provider,
+        useSettingsStore.getState(),
+      );
+      const livePayload = injectCredentials(job.payload, credentials);
+
+      fetch(providerRoute, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(livePayload),
+        signal: controller.signal,
+      })
+        .then(async (res) => {
+          const data: ImageGenerationResponse & { error?: string } = await res.json();
+          if (!res.ok) throw new Error(data.error || `${job.provider} generation failed`);
+          return data.imageUrl;
+        })
+        .then((imageUrl) => {
+          // Respect local cancellation even if network completes.
+          const currentJob = useImageJobsStore
+            .getState()
+            .jobs.find((j) => j.id === job.id);
+          if (currentJob?.status === "cancelled") return;
+
+          // Complete in image jobs store
+          markImageJobCompleted(job.id, imageUrl);
+
+          // Also push to Studio history so existing selection/history behaviour is preserved
+          const image: GeneratedImage = {
+            id: job.id,
+            prompt: job.prompt,
+            negativePrompt: job.payload.negativePrompt ?? undefined,
+            imageUrl,
+            aspectRatio: job.aspectRatio,
+            model: job.model,
+            provider: job.provider,
+            createdAt: job.createdAt,
+          };
+          completeGeneration(image);
+        })
+        .catch((err: unknown) => {
+          if ((err as Error).name === "AbortError") return; // unmount / cancel
+          const message = err instanceof Error ? err.message : "Image generation failed";
+          markImageJobError(job.id, message);
+          toast.error(message);
+        })
+        .finally(() => {
+          imageAbortRef.current.delete(job.id);
+        });
+    },
+    [startImageJob, markImageJobCompleted, markImageJobError, completeGeneration],
+  );
+
+  // ---------------------------------------------------------------------------
+  // On mount: resume/recover persisted active image jobs
+  // ---------------------------------------------------------------------------
+  const hasResumedImageJobs = useRef(false);
+  useEffect(() => {
+    if (hasResumedImageJobs.current) return;
+    hasResumedImageJobs.current = true;
+
+    const activeJobs = getActiveImageJobs(useImageJobsStore.getState());
+    for (const job of activeJobs) {
+      if (job.attempts >= MAX_IMAGE_JOB_ATTEMPTS) {
+        markImageJobError(job.id, "Generation interrupted — exceeded retry limit");
+      } else {
+        executeImageJob(job);
+      }
+    }
+  }, [executeImageJob, markImageJobError]);
+
+  // Cancel all in-flight image requests on unmount
+  useEffect(() => {
+    const abortMap = imageAbortRef.current;
+    return () => {
+      abortMap.forEach((c) => c.abort());
+      abortMap.clear();
+    };
+  }, []);
+
+  // Cancel in-flight image requests when a job is cancelled locally.
+  useEffect(() => {
+    const unsub = useImageJobsStore.subscribe((state, prevState) => {
+      for (const job of state.jobs) {
+        if (job.status !== "cancelled") continue;
+        const prev = prevState.jobs.find((j) => j.id === job.id);
+        if (!prev || prev.status === "cancelled") continue;
+
+        const controller = imageAbortRef.current.get(job.id);
+        if (controller) {
+          controller.abort();
+          imageAbortRef.current.delete(job.id);
+        }
+      }
+    });
+    return unsub;
+  }, []);
+
+  const handleGenerate = useCallback(async () => {
+    // All image generation providers now use server routes —
+    // no client-side API key required (but BYOK keys are forwarded when set).
+    if (!state.prompt.trim()) return;
+
+    // --- Video models take a completely separate path ---
+    const selectedModelConfig = getModelConfig(state.model);
+    if (selectedModelConfig?.kind === "video") {
+      handleVideoGenerate();
+      return;
+    }
+
+    // --- Image models: concurrent, non-blocking ---
+
+    const currentModelConfig = getModelConfig(state.model);
+    const caps = currentModelConfig?.capabilities;
+    const apiModelId = currentModelConfig?.value ?? state.model;
+
+    // Build the canonical payload
+    const payload: ImageGenerationRequest = {
+      prompt: state.prompt,
+      model: apiModelId,
+      provider: state.provider,
+      aspectRatio: state.aspectRatio,
+    };
+
+    // Provider-specific optional fields
+    if (caps?.seed && state.seed) {
+      payload.seed = parseInt(state.seed, 10);
+    }
+    if (caps?.negativePrompt && state.negativePrompt) {
+      payload.negativePrompt = state.negativePrompt;
+    }
+    if (caps?.enhancePrompt) {
+      payload.enhancePrompt = state.enhancePrompt;
+    }
+    if (caps?.personGeneration) {
+      payload.personGeneration = state.personGeneration;
+    }
+    if (caps?.guidanceScale) {
+      payload.guidanceScale = state.guidanceScale;
+    }
+    if (caps?.numInferenceSteps) {
+      payload.numInferenceSteps = state.numInferenceSteps;
+    }
+    // Z Image Turbo: always send 8 inference steps (hardcoded, no slider)
+    if (apiModelId === "alibaba/z-image-turbo") {
+      payload.numInferenceSteps = 8;
+    }
+    if (caps?.safetyTolerance) {
+      payload.safetyTolerance = state.safetyTolerance;
+    }
+    if (caps?.enableSafetyChecker !== undefined) {
+      payload.enableSafetyChecker = state.enableSafetyChecker;
+    }
+
+    // Create an image job record
+    const jobId = crypto.randomUUID();
+    const now = Date.now();
+    const job: ImageJob = {
+      id: jobId,
+      prompt: state.prompt,
+      model: state.model,
+      provider: state.provider,
+      aspectRatio: state.aspectRatio,
+      // Store the credential-free payload. Credentials are injected at execution
+      // time so secrets are not persisted to localStorage.
+      payload,
+      status: "queued",
+      attempts: 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    addImageJob(job);
+
+    // Fire the request (non-blocking)
+    executeImageJob(job);
+  }, [
+    state.provider,
+    state.prompt,
+    state.negativePrompt,
+    state.aspectRatio,
+    state.model,
+    state.guidanceScale,
+    state.numInferenceSteps,
+    state.seed,
+    state.safetyTolerance,
+    state.enableSafetyChecker,
+    state.enhancePrompt,
+    state.personGeneration,
+    handleVideoGenerate,
+    addImageJob,
+    executeImageJob,
+  ]);
+
   const hasImage = !!state.selectedImage;
 
-  // Checking active provider key
-  let hasActiveKey = false;
-  if (state.provider === "google") hasActiveKey = !!googleApiKey;
-  if (state.provider === "vertex")
-    hasActiveKey = !!vertexAccessToken && !!vertexProjectId;
-  if (state.provider === "fal") hasActiveKey = !!falApiKey;
-
-  const canGenerate =
-    hasActiveKey && state.prompt.trim().length > 0 && !isGenerating;
+  // All providers use server-side keys — generation is always available.
+  // No global lock: multiple concurrent image generations are allowed.
+  const canGenerate = state.prompt.trim().length > 0;
 
   const modelLabel =
     MODELS.find((m) => m.id === state.model)?.label ??
@@ -310,9 +496,10 @@ export function PromptComposer() {
   const providerLabel = PROVIDER_SHORT_LABELS[state.provider] ?? state.provider;
 
   const PROVIDER_DOT_COLORS: Record<Provider, string> = {
-    google: "bg-[#0071E3]",
-    vertex: "bg-[#34C759]",
-    fal: "bg-[#AF52DE]",
+    google: "bg-blue-500",
+    vertex: "bg-emerald-500",
+    fal: "bg-violet-500",
+    aiml: "bg-orange-500",
   };
 
   // Keyboard shortcut: Cmd/Ctrl + Enter
@@ -331,28 +518,35 @@ export function PromptComposer() {
     <motion.div
       initial={false}
       animate={{
-        bottom: hasImage ? "2.5rem" : "50%",
+        bottom: hasImage ? "1.5rem" : "50%",
         y: hasImage ? 0 : "50%",
       }}
       transition={{ type: "spring", damping: 30, stiffness: 200 }}
-      className="fixed inset-x-0 z-40 flex justify-center px-4 pointer-events-none"
+      className="absolute inset-x-0 z-40 flex justify-center px-3 sm:px-4 pointer-events-none"
     >
       <div className="w-full max-w-3xl flex flex-col gap-3 pointer-events-auto">
+        {/* Pending image generation cards */}
+        <PendingImageJobsStrip />
+
         <div
           className={cn(
-            "bg-white rounded-[2rem] transition-all duration-300",
-            "shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-black/[0.04]",
-            isGenerating && "opacity-50 scale-[0.98] blur-sm pointer-events-none",
+            "bg-card rounded-2xl sm:rounded-[2rem] transition-all duration-300",
+            "shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-border",
             "minimal-focus",
           )}
         >
           {/* Main Input Area */}
-          <div className="px-6 pt-6 pb-2">
+          <div className="px-4 sm:px-6 pt-4 sm:pt-6 pb-2">
             <textarea
               ref={textareaRef}
               value={state.prompt}
               onChange={(e) => {
-                setPrompt(e.target.value);
+                const value = e.target.value;
+                if (value.length <= maxPromptLength) {
+                  setPrompt(value);
+                } else {
+                  setPrompt(value.slice(0, maxPromptLength));
+                }
                 autoResize(e.target);
               }}
               onKeyDown={(e) => {
@@ -360,33 +554,88 @@ export function PromptComposer() {
                   e.preventDefault();
                   if (canGenerate) {
                     handleGenerate();
-                  } else if (
-                    !hasActiveKey &&
-                    state.prompt.trim().length > 0
-                  ) {
-                    openApiKeyDialog();
                   }
+                  return;
+                }
+
+                // Block character input when at limit (allow control keys)
+                if (
+                  !e.metaKey &&
+                  !e.ctrlKey &&
+                  e.key.length === 1 // printable character
+                ) {
+                  const textarea = e.currentTarget;
+                  const selectionLength = textarea.selectionEnd - textarea.selectionStart;
+                  const currentLength = state.prompt.length;
+
+                  // If text is selected, typing replaces it — allow if result fits
+                  if (selectionLength > 0 && currentLength - selectionLength + 1 <= maxPromptLength) {
+                    return;
+                  }
+
+                  // Block if at or over limit with no selection to replace
+                  if (currentLength >= maxPromptLength) {
+                    e.preventDefault();
+                  }
+                }
+              }}
+              onPaste={(e) => {
+                const paste = e.clipboardData.getData("text");
+                const textarea = e.currentTarget;
+                const start = textarea.selectionStart;
+                const end = textarea.selectionEnd;
+                const selectionLength = end - start;
+                const available = maxPromptLength - (state.prompt.length - selectionLength);
+                if (paste.length > available) {
+                  e.preventDefault();
+                  const truncated = paste.slice(0, Math.max(0, available));
+                  const before = state.prompt.slice(0, start);
+                  const after = state.prompt.slice(end);
+                  const newValue = (before + truncated + after).slice(0, maxPromptLength);
+                  setPrompt(newValue);
+                  // Restore cursor position after React re-render
+                  requestAnimationFrame(() => {
+                    textarea.selectionStart = textarea.selectionEnd = start + truncated.length;
+                    autoResize(textarea);
+                  });
                 }
               }}
               placeholder="Describe your vision..."
               rows={1}
               className={cn(
                 "w-full resize-none bg-transparent text-foreground focus:outline-none",
-                "font-serif text-2xl md:text-3xl leading-snug placeholder:text-neutral-300",
-                "selection:bg-[#0071E3]/20 selection:text-[#0071E3]",
+                "font-serif text-base leading-relaxed placeholder:text-muted-foreground/50",
+                "selection:bg-primary/20 selection:text-primary",
               )}
-              disabled={isGenerating}
+              disabled={false}
             />
+            {/* Character counter */}
+            {state.prompt.length > 0 && (
+              <div className="flex justify-end pt-1 pb-0.5">
+                <span
+                  className={cn(
+                    "text-xs font-sans tabular-nums tracking-tight transition-colors",
+                    state.prompt.length >= maxPromptLength
+                      ? "text-destructive font-medium"
+                      : state.prompt.length > maxPromptLength - 500
+                        ? "text-amber-500"
+                        : "text-muted-foreground/50",
+                  )}
+                >
+                  {state.prompt.length}/{maxPromptLength}
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Controls Footer */}
-          <div className="flex items-center justify-between gap-3 px-3 pb-3 pt-2">
+          <div className="flex flex-wrap items-center justify-between gap-2 px-3 pb-3 pt-2">
             {/* Left Controls */}
-            <div className="flex items-center gap-1.5 ml-2">
+            <div className="flex items-center gap-1.5 ml-2 min-w-0">
               <button
                 type="button"
                 onClick={toggleControls}
-                className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium text-neutral-500 hover:bg-neutral-100 hover:text-black transition-colors"
+                className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors min-w-0"
               >
                 <span
                   className={cn(
@@ -394,25 +643,25 @@ export function PromptComposer() {
                     PROVIDER_DOT_COLORS[state.provider],
                   )}
                 />
-                <span>{providerLabel}</span>
-                <span className="text-neutral-500/40">/</span>
-                <span className="text-black font-semibold">{modelLabel}</span>
+                <span className="truncate">{providerLabel}</span>
+                <span className="text-muted-foreground/40 shrink-0">/</span>
+                <span className="text-foreground font-semibold truncate">{modelLabel}</span>
               </button>
-              <div className="w-px h-4 bg-black/10 mx-1" />
+              <div className="w-px h-4 bg-border mx-1 shrink-0 hidden sm:block" />
               <button
                 type="button"
                 onClick={toggleControls}
-                className="flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium text-neutral-500 hover:bg-neutral-100 hover:text-black transition-colors"
+                className="hidden sm:flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
               >
                 <ImageIcon className="size-4 opacity-50" />
-                <span className="text-black font-semibold">{state.aspectRatio}</span>
+                <span className="text-foreground font-semibold">{state.aspectRatio}</span>
               </button>
             </div>
 
             {/* Right side */}
-            <div className="flex items-center pr-1">
+            <div className="flex items-center pr-1 shrink-0">
               <AnimatePresence mode="popLayout">
-                {canGenerate && !isGenerating && (
+                {canGenerate && (
                   <motion.div
                     key="generate"
                     initial={{ opacity: 0, scale: 0.9 }}
@@ -422,27 +671,10 @@ export function PromptComposer() {
                     <Button
                       size="default"
                       onClick={handleGenerate}
-                      className="rounded-full bg-black text-white hover:bg-neutral-800 hover:scale-105 transition-transform duration-200 px-6 h-10 shadow-md font-sans font-medium tracking-tight"
+                      className="rounded-full bg-primary text-primary-foreground hover:bg-primary/90 hover:scale-105 transition-transform duration-200 px-6 h-10 shadow-md font-sans font-medium tracking-tight"
                     >
                       <Sparkles className="size-4 mr-2" />
                       Generate
-                    </Button>
-                  </motion.div>
-                )}
-                {!hasActiveKey && !isGenerating && (
-                  <motion.div
-                    key="apikey"
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.9 }}
-                  >
-                    <Button
-                      size="default"
-                      variant="outline"
-                      onClick={openApiKeyDialog}
-                      className="rounded-full border-black/10 text-black hover:bg-neutral-50 h-10 font-sans font-medium tracking-tight"
-                    >
-                      Connect API Key
                     </Button>
                   </motion.div>
                 )}
@@ -451,21 +683,21 @@ export function PromptComposer() {
           </div>
         </div>
 
-        {/* Helper text */}
+        {/* Helper text — hidden on narrow screens */}
         <AnimatePresence>
           {!hasImage && (
             <motion.p
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="text-center text-sm text-neutral-400 font-sans tracking-tight pt-2"
+              className="hidden sm:block text-center text-sm text-muted-foreground font-sans tracking-tight pt-2"
             >
               Press{" "}
-              <kbd className="px-1.5 py-0.5 bg-black/5 border border-black/10 rounded-md text-xs mx-0.5 font-sans text-neutral-500">
+              <kbd className="px-1.5 py-0.5 bg-muted border border-border rounded-md text-xs mx-0.5 font-sans text-muted-foreground">
                 Enter
               </kbd>{" "}
               to generate,{" "}
-              <kbd className="px-1.5 py-0.5 bg-black/5 border border-black/10 rounded-md text-xs mx-0.5 font-sans text-neutral-500">
+              <kbd className="px-1.5 py-0.5 bg-muted border border-border rounded-md text-xs mx-0.5 font-sans text-muted-foreground">
                 Shift + Enter
               </kbd>{" "}
               for new line
