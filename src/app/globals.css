@@ -226,16 +226,6 @@ h1, h2, h3, h4, h5, h6 {
   background: oklch(0.5 0.005 260) !important;
 }
 
-/* Image reveal animation */
-@keyframes ethereal-develop {
-  0% { opacity: 0; filter: blur(30px); transform: scale(0.98); }
-  100% { opacity: 1; filter: blur(0); transform: scale(1); }
-}
-
-.image-develop {
-  animation: ethereal-develop 1.2s cubic-bezier(0.2, 0, 0, 1) forwards;
-}
-
 /* Remove arrows from number inputs */
 input[type="number"]::-webkit-inner-spin-button,
 input[type="number"]::-webkit-outer-spin-button {
