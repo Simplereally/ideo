@@ -1,478 +1,254 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
-import { Sparkles, Image as ImageIcon } from "lucide-react";
+import {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+  useLayoutEffect,
+} from "react";
+import { Sparkles } from "lucide-react";
+import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { useStudio } from "@/lib/store";
-import { useSettingsStore } from "@/store/settings";
 import { cn } from "@/lib/utils";
-import { MODELS, getModelConfig, PROVIDER_SHORT_LABELS } from "@/lib/types";
-import type { GeneratedImage, Provider } from "@/lib/types";
-import { toast } from "sonner";
-import { GoogleGenAI } from "@google/genai";
-import { fal } from "@fal-ai/client";
-import { motion, AnimatePresence } from "framer-motion";
+import { getMaxPromptLength, isVideoModel } from "@/lib/types";
+import { useGenerationActions } from "./generation-actions";
+import { PendingImageJobsStrip } from "./pending-image-jobs-strip";
+import { PendingVideoJobsStrip } from "./pending-video-jobs-strip";
+import { ModelCombobox } from "./model-combobox";
+import { AspectRatioCombobox } from "./aspect-ratio-combobox";
+import { BatchSizePopover } from "./batch-size-popover";
 
-const uploadToR2 = async (blob: Blob, ext: string): Promise<string> => {
-  const res = await fetch("/api/upload", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      fileName: `upload.${ext}`,
-      contentType: blob.type,
-    }),
-  });
-  
-  if (!res.ok) throw new Error("Failed to get presigned URL");
-  const { url } = await res.json();
-  
-  const uploadRes = await fetch(url, {
-    method: "PUT",
-    body: blob,
-    headers: { "Content-Type": blob.type },
-  });
-  
-  if (!uploadRes.ok) throw new Error("Failed to upload to R2");
-  
-  return url.split("?")[0]; 
-};
+const COLLAPSED_TEXTAREA_HEIGHT = 63;
+const MAX_TEXTAREA_HEIGHT = 240;
 
 export function PromptComposer() {
-  const {
-    state,
-    setPrompt,
-    startGeneration,
-    completeGeneration,
-    failGeneration,
-    openApiKeyDialog,
-    toggleControls,
-  } = useStudio();
-  const {
-    googleApiKey,
-    falApiKey,
-    vertexProjectId,
-    vertexLocation,
-    vertexAccessToken,
-  } = useSettingsStore();
+  const { state, setPrompt } = useStudio();
+  const { generateFromCurrentState } = useGenerationActions();
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [isPromptFocused, setIsPromptFocused] = useState(false);
+  const [textareaHeight, setTextareaHeight] = useState(
+    COLLAPSED_TEXTAREA_HEIGHT,
+  );
 
-  const [isMac, setIsMac] = useState(false);
-  useEffect(() => {
-    setIsMac(navigator.platform.toUpperCase().indexOf("MAC") >= 0);
-  }, []);
+  const maxPromptLength = useMemo(
+    () => getMaxPromptLength(state.model),
+    [state.model],
+  );
 
-  // Auto-focus on mount
   useEffect(() => {
     textareaRef.current?.focus();
   }, []);
 
-  // Auto-resize helper
-  function autoResize(el: HTMLTextAreaElement) {
-    el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 240)}px`;
-  }
+  const syncTextareaHeight = useCallback((expanded: boolean) => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
 
-  const handleGenerate = useCallback(async () => {
-    if (state.provider === "google" && !googleApiKey) {
-      toast.error("Google AI Studio API Key is missing");
-      openApiKeyDialog();
+    if (!textarea.value) {
+      setTextareaHeight(COLLAPSED_TEXTAREA_HEIGHT);
       return;
     }
-    if (state.provider === "vertex" && (!vertexAccessToken || !vertexProjectId)) {
-      toast.error("Vertex AI credentials are missing");
-      openApiKeyDialog();
-      return;
-    }
-    if (state.provider === "fal" && !falApiKey) {
-      toast.error("Fal AI API Key is missing");
-      openApiKeyDialog();
-      return;
-    }
-    if (!state.prompt.trim()) return;
-    if (state.status === "generating") return;
 
-    startGeneration();
+    const previousHeight = textarea.style.height;
+    textarea.style.height = "0px";
+    const measuredHeight = Math.min(textarea.scrollHeight, MAX_TEXTAREA_HEIGHT);
+    textarea.style.height = previousHeight;
 
-    const capturedState = {
-      prompt: state.prompt,
-      negativePrompt: state.negativePrompt,
-      aspectRatio: state.aspectRatio,
-      model: state.model,
-      provider: state.provider,
-      guidanceScale: state.guidanceScale,
-      numberOfImages: state.numberOfImages,
-      numInferenceSteps: state.numInferenceSteps,
-      seed: state.seed,
-      safetyTolerance: state.safetyTolerance,
-      enableSafetyChecker: state.enableSafetyChecker,
-      enhancePrompt: state.enhancePrompt,
-      personGeneration: state.personGeneration,
-    };
+    setTextareaHeight(
+      expanded
+        ? Math.max(COLLAPSED_TEXTAREA_HEIGHT, measuredHeight)
+        : COLLAPSED_TEXTAREA_HEIGHT,
+    );
+  }, []);
 
-    try {
-      let finalImageUrl = "";
+  useLayoutEffect(() => {
+    syncTextareaHeight(isPromptFocused);
+  }, [isPromptFocused, state.prompt, syncTextareaHeight]);
 
-      const finalPrompt = capturedState.prompt;
-      const currentModelConfig = getModelConfig(capturedState.model);
-      const caps = currentModelConfig?.capabilities;
-      const apiModelId = currentModelConfig?.value ?? capturedState.model;
+  const handleGenerate = useCallback(() => {
+    void generateFromCurrentState();
+  }, [generateFromCurrentState]);
 
-      if (capturedState.provider === "google") {
-        const ai = new GoogleGenAI({ apiKey: googleApiKey });
+  const canGenerate = state.prompt.trim().length > 0;
 
-        const config: Record<string, unknown> = {
-          numberOfImages: 1,
-          aspectRatio: capturedState.aspectRatio,
-          outputMimeType: "image/jpeg",
-        };
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      const target = event.target;
 
-        if (caps?.seed && capturedState.seed) {
-          config.seed = parseInt(capturedState.seed, 10);
-        }
-
-        if (caps?.negativePrompt && capturedState.negativePrompt) {
-          config.negativePrompt = capturedState.negativePrompt;
-        }
-
-        const response = await ai.models.generateImages({
-          model: apiModelId,
-          prompt: finalPrompt,
-          config,
-        });
-
-        const base64 = response.generatedImages?.[0]?.image?.imageBytes;
-        if (!base64) throw new Error("No image generated by Google");
-
-        // Convert base64 to Blob
-        const fetchRes = await fetch(`data:image/jpeg;base64,${base64}`);
-        const blob = await fetchRes.blob();
-
-        try {
-          finalImageUrl = await uploadToR2(blob, "jpg");
-        } catch (e) {
-          console.warn("R2 upload failed, falling back to data URL", e);
-          finalImageUrl = `data:image/jpeg;base64,${base64}`;
-        }
-      } else if (capturedState.provider === "vertex") {
-        const token = vertexAccessToken;
-        const config: Record<string, unknown> = {
-          sampleCount: 1,
-          aspectRatio: capturedState.aspectRatio,
-          addWatermark: false,
-        };
-
-        if (caps?.seed && capturedState.seed) {
-          config.seed = parseInt(capturedState.seed, 10);
-        }
-
-        if (caps?.negativePrompt && capturedState.negativePrompt) {
-          config.negativePrompt = capturedState.negativePrompt;
-        }
-
-        if (caps?.enhancePrompt) {
-          config.enhancePrompt = capturedState.enhancePrompt;
-        }
-
-        if (caps?.personGeneration) {
-          config.personGeneration = capturedState.personGeneration;
-        }
-
-        const response = await fetch(
-          `https://${vertexLocation}-aiplatform.googleapis.com/v1/projects/${vertexProjectId}/locations/${vertexLocation}/publishers/google/models/${apiModelId}:predict`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({
-              instances: [{ prompt: finalPrompt }],
-              parameters: config,
-            }),
-          }
-        );
-        
-        const data = await response.json();
-        if (!response.ok) {
-          throw new Error(data.error?.message || "Failed to generate via Vertex");
-        }
-        
-        const base64 = data.predictions?.[0]?.bytesBase64Encoded;
-        if (!base64) throw new Error("No image generated by Vertex");
-        const mimeType = data.predictions?.[0]?.mimeType || "image/png";
-
-        const fetchRes = await fetch(`data:${mimeType};base64,${base64}`);
-        const blob = await fetchRes.blob();
-
-        try {
-          const ext = mimeType === "image/jpeg" ? "jpg" : "png";
-          finalImageUrl = await uploadToR2(blob, ext);
-        } catch (e) {
-          console.warn("R2 upload failed, falling back to data URL", e);
-          finalImageUrl = `data:${mimeType};base64,${base64}`;
-        }
-      } else if (capturedState.provider === "fal") {
-        fal.config({ credentials: falApiKey });
-
-        // Map aspect ratio for fal
-        let imageSize = "square_hd";
-        if (capturedState.aspectRatio === "16:9") imageSize = "landscape_16_9";
-        if (capturedState.aspectRatio === "9:16") imageSize = "portrait_16_9";
-        if (capturedState.aspectRatio === "4:3") imageSize = "landscape_4_3";
-        if (capturedState.aspectRatio === "3:4") imageSize = "portrait_4_3";
-
-        const falInput: Record<string, unknown> = {
-          prompt: finalPrompt,
-          image_size: imageSize,
-          num_images: 1,
-        };
-
-        // Only send params the model actually supports
-        if (caps?.guidanceScale) {
-          falInput.guidance_scale = capturedState.guidanceScale;
-        }
-        if (caps?.numInferenceSteps) {
-          falInput.num_inference_steps = capturedState.numInferenceSteps;
-        }
-        if (caps?.seed && capturedState.seed) {
-          falInput.seed = parseInt(capturedState.seed, 10);
-        }
-        if (caps?.safetyTolerance) {
-          falInput.safety_tolerance = String(capturedState.safetyTolerance);
-        }
-        if (caps?.enableSafetyChecker !== undefined) {
-          falInput.enable_safety_checker = capturedState.enableSafetyChecker;
-        }
-
-        const result = await fal.subscribe(apiModelId, {
-          input: falInput,
-        });
-
-        // @ts-ignore - fal types don't expose images correctly
-        if (!result.images?.[0]?.url)
-          throw new Error("No image generated by Fal");
-        // @ts-ignore
-        finalImageUrl = result.images[0].url;
+      // Skip if focus is inside an editable element — the textarea's own
+      // onKeyDown already handles Cmd/Ctrl+Enter there. Listening here too
+      // would enqueue the generation twice.
+      if (
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLInputElement ||
+        (target instanceof HTMLElement && target.isContentEditable)
+      ) {
+        return;
       }
 
-      const image: GeneratedImage = {
-        id: crypto.randomUUID(),
-        prompt: capturedState.prompt,
-        negativePrompt: capturedState.negativePrompt || undefined,
-        imageUrl: finalImageUrl,
-        aspectRatio: capturedState.aspectRatio,
-        model: capturedState.model,
-        provider: capturedState.provider,
-        createdAt: Date.now(),
-      };
-
-      completeGeneration(image);
-      setPrompt("");
-      if (textareaRef.current) textareaRef.current.style.height = "auto";
-    } catch (error: any) {
-      console.error(error);
-      failGeneration(error.message || "Failed to generate image");
-      toast.error(error.message || "Generation failed");
-    }
-  }, [
-    state,
-    googleApiKey,
-    falApiKey,
-    vertexProjectId,
-    vertexLocation,
-    vertexAccessToken,
-    startGeneration,
-    completeGeneration,
-    failGeneration,
-    openApiKeyDialog,
-    setPrompt,
-  ]);
-
-  const isGenerating = state.status === "generating";
-  const hasImage = !!state.selectedImage;
-
-  // Checking active provider key
-  let hasActiveKey = false;
-  if (state.provider === "google") hasActiveKey = !!googleApiKey;
-  if (state.provider === "vertex")
-    hasActiveKey = !!vertexAccessToken && !!vertexProjectId;
-  if (state.provider === "fal") hasActiveKey = !!falApiKey;
-
-  const canGenerate =
-    hasActiveKey && state.prompt.trim().length > 0 && !isGenerating;
-
-  const modelLabel =
-    MODELS.find((m) => m.id === state.model)?.label ??
-    MODELS.find((m) => m.value === state.model)?.label ??
-    state.model;
-
-  const providerLabel = PROVIDER_SHORT_LABELS[state.provider] ?? state.provider;
-
-  const PROVIDER_DOT_COLORS: Record<Provider, string> = {
-    google: "bg-[#0071E3]",
-    vertex: "bg-[#34C759]",
-    fal: "bg-[#AF52DE]",
-  };
-
-  // Keyboard shortcut: Cmd/Ctrl + Enter
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-        e.preventDefault();
+      if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+        event.preventDefault();
         if (canGenerate) handleGenerate();
       }
     }
+
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleGenerate, canGenerate]);
+  }, [canGenerate, handleGenerate]);
 
   return (
-    <motion.div
-      initial={false}
-      animate={{
-        bottom: hasImage ? "2.5rem" : "50%",
-        y: hasImage ? 0 : "50%",
-      }}
-      transition={{ type: "spring", damping: 30, stiffness: 200 }}
-      className="fixed inset-x-0 z-40 flex justify-center px-4 pointer-events-none"
-    >
-      <div className="w-full max-w-3xl flex flex-col gap-3 pointer-events-auto">
-        <div
+    <motion.div layout className="flex justify-center">
+      <motion.div
+        layout
+        transition={{ type: "spring", stiffness: 190, damping: 24, mass: 0.9 }}
+        className="flex w-full max-w-3xl flex-col gap-3"
+      >
+        <PendingVideoJobsStrip />
+        <PendingImageJobsStrip />
+
+        <motion.div
+          layout
+          transition={{ type: "spring", stiffness: 190, damping: 24, mass: 0.9 }}
           className={cn(
-            "bg-white rounded-[2rem] transition-all duration-300",
-            "shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-black/[0.04]",
-            isGenerating && "opacity-50 scale-[0.98] blur-sm pointer-events-none",
+            "bg-card rounded-lg sm:rounded-xl transition-all duration-300",
+            "shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-border",
             "minimal-focus",
           )}
         >
-          {/* Main Input Area */}
-          <div className="px-6 pt-6 pb-2">
+          <motion.div layout className="px-3 sm:px-4 pt-0.5 pb-1">
             <textarea
               ref={textareaRef}
               value={state.prompt}
-              onChange={(e) => {
-                setPrompt(e.target.value);
-                autoResize(e.target);
+              onChange={(event) => {
+                const value = event.target.value;
+                if (value.length <= maxPromptLength) {
+                  setPrompt(value);
+                } else {
+                  setPrompt(value.slice(0, maxPromptLength));
+                }
               }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
+              onFocus={() => {
+                setIsPromptFocused(true);
+              }}
+              onBlur={() => {
+                setIsPromptFocused(false);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
                   if (canGenerate) {
                     handleGenerate();
-                  } else if (
-                    !hasActiveKey &&
-                    state.prompt.trim().length > 0
-                  ) {
-                    openApiKeyDialog();
                   }
+                  return;
+                }
+
+                if (!event.metaKey && !event.ctrlKey && event.key.length === 1) {
+                  const textarea = event.currentTarget;
+                  const selectionLength =
+                    textarea.selectionEnd - textarea.selectionStart;
+                  const currentLength = state.prompt.length;
+
+                  if (
+                    selectionLength > 0 &&
+                    currentLength - selectionLength + 1 <= maxPromptLength
+                  ) {
+                    return;
+                  }
+
+                  if (currentLength >= maxPromptLength) {
+                    event.preventDefault();
+                  }
+                }
+              }}
+              onPaste={(event) => {
+                const paste = event.clipboardData.getData("text");
+                const textarea = event.currentTarget;
+                const start = textarea.selectionStart;
+                const end = textarea.selectionEnd;
+                const selectionLength = end - start;
+                const available =
+                  maxPromptLength - (state.prompt.length - selectionLength);
+
+                if (paste.length > available) {
+                  event.preventDefault();
+                  const truncated = paste.slice(0, Math.max(0, available));
+                  const before = state.prompt.slice(0, start);
+                  const after = state.prompt.slice(end);
+                  const nextValue = (before + truncated + after).slice(
+                    0,
+                    maxPromptLength,
+                  );
+
+                  setPrompt(nextValue);
+
+                  requestAnimationFrame(() => {
+                    textarea.selectionStart = textarea.selectionEnd =
+                      start + truncated.length;
+                  });
                 }
               }}
               placeholder="Describe your vision..."
               rows={1}
               className={cn(
-                "w-full resize-none bg-transparent text-foreground focus:outline-none",
-                "font-serif text-2xl md:text-3xl leading-snug placeholder:text-neutral-300",
-                "selection:bg-[#0071E3]/20 selection:text-[#0071E3]",
+                "w-full resize-none bg-transparent pt-0 text-foreground focus:outline-none transition-[height] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
+                "font-serif text-base leading-relaxed placeholder:text-muted-foreground/50",
+                "selection:bg-primary/20 selection:text-primary",
               )}
-              disabled={isGenerating}
+              style={{ height: `${textareaHeight}px` }}
+              disabled={false}
             />
-          </div>
+          </motion.div>
 
-          {/* Controls Footer */}
-          <div className="flex items-center justify-between gap-3 px-3 pb-3 pt-2">
-            {/* Left Controls */}
-            <div className="flex items-center gap-1.5 ml-2">
-              <button
-                type="button"
-                onClick={toggleControls}
-                className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium text-neutral-500 hover:bg-neutral-100 hover:text-black transition-colors"
-              >
-                <span
-                  className={cn(
-                    "size-2 rounded-full shrink-0",
-                    PROVIDER_DOT_COLORS[state.provider],
-                  )}
-                />
-                <span>{providerLabel}</span>
-                <span className="text-neutral-500/40">/</span>
-                <span className="text-black font-semibold">{modelLabel}</span>
-              </button>
-              <div className="w-px h-4 bg-black/10 mx-1" />
-              <button
-                type="button"
-                onClick={toggleControls}
-                className="flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium text-neutral-500 hover:bg-neutral-100 hover:text-black transition-colors"
-              >
-                <ImageIcon className="size-4 opacity-50" />
-                <span className="text-black font-semibold">{state.aspectRatio}</span>
-              </button>
+          <motion.div
+            layout
+            className="flex flex-wrap items-center justify-between gap-2 border-t border-border/60 px-3 pb-3 pt-2.5"
+          >
+            <div className="flex items-center gap-1.5 ml-2 min-w-0">
+              <ModelCombobox />
+              {!isVideoModel(state.model) && (
+                <>
+                  <div className="w-px h-4 bg-border mx-1 shrink-0 hidden sm:block" />
+                  <AspectRatioCombobox />
+                  <div className="w-px h-4 bg-border mx-1 shrink-0 hidden sm:block" />
+                  <BatchSizePopover />
+                </>
+              )}
             </div>
 
-            {/* Right side */}
-            <div className="flex items-center pr-1">
-              <AnimatePresence mode="popLayout">
-                {canGenerate && !isGenerating && (
-                  <motion.div
-                    key="generate"
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.9 }}
-                  >
-                    <Button
-                      size="default"
-                      onClick={handleGenerate}
-                      className="rounded-full bg-black text-white hover:bg-neutral-800 hover:scale-105 transition-transform duration-200 px-6 h-10 shadow-md font-sans font-medium tracking-tight"
-                    >
-                      <Sparkles className="size-4 mr-2" />
-                      Generate
-                    </Button>
-                  </motion.div>
+            <div className="flex items-center gap-3 pr-1 shrink-0">
+              <span
+                className={cn(
+                  "text-xs font-sans tabular-nums tracking-tight transition-colors",
+                  state.prompt.length >= maxPromptLength
+                    ? "text-destructive font-medium"
+                    : state.prompt.length > maxPromptLength - 500
+                      ? "text-amber-500"
+                      : "text-muted-foreground/55",
                 )}
-                {!hasActiveKey && !isGenerating && (
-                  <motion.div
-                    key="apikey"
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.9 }}
-                  >
-                    <Button
-                      size="default"
-                      variant="outline"
-                      onClick={openApiKeyDialog}
-                      className="rounded-full border-black/10 text-black hover:bg-neutral-50 h-10 font-sans font-medium tracking-tight"
-                    >
-                      Connect API Key
-                    </Button>
-                  </motion.div>
+              >
+                {state.prompt.length}/{maxPromptLength}
+              </span>
+              <Button
+                size="default"
+                onClick={handleGenerate}
+                disabled={!canGenerate}
+                className={cn(
+                  "rounded-full bg-primary px-6 font-sans font-medium tracking-tight text-primary-foreground shadow-md transition-all duration-200 h-10",
+                  canGenerate
+                    ? "hover:scale-105 hover:bg-primary/90 opacity-100"
+                    : "opacity-50 cursor-not-allowed",
                 )}
-              </AnimatePresence>
+              >
+                <Sparkles className="mr-2 size-4" />
+                Generate
+              </Button>
             </div>
-          </div>
-        </div>
-
-        {/* Helper text */}
-        <AnimatePresence>
-          {!hasImage && (
-            <motion.p
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="text-center text-sm text-neutral-400 font-sans tracking-tight pt-2"
-            >
-              Press{" "}
-              <kbd className="px-1.5 py-0.5 bg-black/5 border border-black/10 rounded-md text-xs mx-0.5 font-sans text-neutral-500">
-                Enter
-              </kbd>{" "}
-              to generate,{" "}
-              <kbd className="px-1.5 py-0.5 bg-black/5 border border-black/10 rounded-md text-xs mx-0.5 font-sans text-neutral-500">
-                Shift + Enter
-              </kbd>{" "}
-              for new line
-            </motion.p>
-          )}
-        </AnimatePresence>
-      </div>
+          </motion.div>
+        </motion.div>
+      </motion.div>
     </motion.div>
   );
 }

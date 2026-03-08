@@ -15,5 +15,13 @@
 
 ## Agent Instructions
 - **Strictly use `bun`** for package management. Do not use `npm`, `yarn`, or `pnpm`.
+- Run tests with `bun run test` (not `bun test`).
 - Ensure new components adhere to the existing Shadcn UI and Tailwind v4 setup.
 - Always implement APIs securely, never exposing direct R2/AWS credentials to the client.
+
+## Animation Patterns
+
+### Sidebar/Panel Animations (Layout-Stable Pattern)
+When animating sidebars in a flex container, **never use `AnimatePresence`** with conditional rendering. This causes layout snap when the component unmounts.
+
+**Rules:** Always render the `motion.aside` (never unmount), animate `width` between 0 and target, use `shrink-0 overflow-hidden` on the aside, and wrap content in a `min-w-[WIDTH]` div to prevent reflow.

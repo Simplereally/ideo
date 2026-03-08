@@ -5,33 +5,11 @@
    IDEO — Studio Design System
    ============================================ */
 
+/* --- Non-color theme tokens (static, no dark override needed) --- */
 @theme inline {
-  --color-background: #F5F5F7;
-  --color-foreground: #1D1D1F;
   --font-sans: var(--font-inter), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --font-serif: var(--font-newsreader), ui-serif, Georgia, serif;
-  
-  --color-border: rgba(0, 0, 0, 0.06);
-  --color-input: rgba(0, 0, 0, 0.03);
-  --color-ring: #D97706;
-  
-  --color-primary: #1D1D1F;
-  --color-primary-foreground: #ffffff;
-  
-  --color-secondary: #ffffff;
-  --color-secondary-foreground: #1D1D1F;
-  
-  --color-muted: rgba(0, 0, 0, 0.04);
-  --color-muted-foreground: #86868B;
-  
-  --color-destructive: #FF3B30;
-  
-  --color-popover: rgba(255, 255, 255, 0.85);
-  --color-popover-foreground: #1D1D1F;
-  
-  --color-card: #ffffff;
-  --color-card-foreground: #1D1D1F;
-  
+
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -41,15 +19,102 @@
   --radius-4xl: calc(var(--radius) + 16px);
 }
 
+/* --- Color tokens: map unprefixed CSS vars → Tailwind --color-* namespace.
+      Uses @theme inline so Tailwind generates utilities like bg-background,
+      text-foreground, etc. that resolve to var(--background), var(--foreground)
+      at runtime — allowing .dark overrides to take effect. --- */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+}
+
+/* --- Light mode defaults (+ non-theme custom properties) --- */
 :root {
   --radius: 0.75rem;
   --brand-blue: #0071E3;
   --brand-amber: #D97706;
+
+  --background: #F5F5F7;
+  --foreground: #1D1D1F;
+
+  --border: rgba(0, 0, 0, 0.06);
+  --input: rgba(0, 0, 0, 0.03);
+  --ring: #D97706;
+
+  --primary: #1D1D1F;
+  --primary-foreground: #ffffff;
+
+  --secondary: #ffffff;
+  --secondary-foreground: #1D1D1F;
+
+  --muted: rgba(0, 0, 0, 0.04);
+  --muted-foreground: #86868B;
+
+  --destructive: #FF3B30;
+  --destructive-foreground: #ffffff;
+
+  --popover: rgba(255, 255, 255, 0.85);
+  --popover-foreground: #1D1D1F;
+
+  --card: #ffffff;
+  --card-foreground: #1D1D1F;
+}
+
+/* ---- Dark mode overrides ----
+     Sophisticated dark blue-gray palette inspired by bloomstudio.
+     Uses OKLCH with hue 260 for a cool, refined undertone. */
+.dark {
+  --background: oklch(0.14 0.005 260);
+  --foreground: oklch(0.97 0.005 50);
+
+  --border: oklch(0.26 0.006 260);
+  --input: oklch(0.23 0.005 260);
+  --ring: oklch(0.68 0.18 45);
+
+  --primary: oklch(0.97 0.005 50);
+  --primary-foreground: oklch(0.14 0.005 260);
+
+  --secondary: oklch(0.22 0.006 260);
+  --secondary-foreground: oklch(0.95 0.005 40);
+
+  --muted: oklch(0.20 0.005 260);
+  --muted-foreground: oklch(0.7 0.01 50);
+
+  --destructive: oklch(0.55 0.22 15);
+  --destructive-foreground: oklch(0.97 0.005 50);
+
+  --popover: oklch(0.17 0.006 260);
+  --popover-foreground: oklch(0.97 0.005 50);
+
+  --card: oklch(0.18 0.005 260);
+  --card-foreground: oklch(0.97 0.005 50);
 }
 
 body {
-  background-color: var(--color-background);
-  color: var(--color-foreground);
+  background-color: var(--background);
+  color: var(--foreground);
   font-family: var(--font-sans);
   letter-spacing: -0.01em;
   -webkit-font-smoothing: antialiased;
@@ -72,6 +137,15 @@ h1, h2, h3, h4, h5, h6 {
   border: 1px solid rgba(0, 0, 0, 0.06);
 }
 
+.dark .glass-panel {
+  background: oklch(0.18 0.005 260 / 0.75);
+  box-shadow: 
+    0 4px 24px -1px rgba(0, 0, 0, 0.25), 
+    0 12px 48px -4px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 0 oklch(1 0 0 / 0.04);
+  border: 1px solid oklch(0.26 0.006 260);
+}
+
 /* ---- iOS-style list ---- */
 .ios-list {
   background: #ffffff;
@@ -81,10 +155,20 @@ h1, h2, h3, h4, h5, h6 {
   border: 1px solid rgba(0, 0, 0, 0.04);
 }
 
+.dark .ios-list {
+  background: oklch(0.18 0.005 260);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  border: 1px solid oklch(0.26 0.006 260);
+}
+
 .ios-list-item {
   border-bottom: 1px solid rgba(0, 0, 0, 0.04);
   background: transparent;
   transition: background 0.15s ease;
+}
+
+.dark .ios-list-item {
+  border-bottom: 1px solid oklch(0.26 0.006 260);
 }
 
 .ios-list-item:last-child {
@@ -95,8 +179,16 @@ h1, h2, h3, h4, h5, h6 {
   background: rgba(0, 0, 0, 0.02);
 }
 
+.dark .ios-list-item:hover {
+  background: oklch(0.22 0.006 260);
+}
+
 .ios-list-item.selected {
   background: rgba(217, 119, 6, 0.04);
+}
+
+.dark .ios-list-item.selected {
+  background: oklch(0.68 0.18 45 / 0.1);
 }
 
 /* Minimal focus state */
@@ -118,25 +210,22 @@ h1, h2, h3, h4, h5, h6 {
 ::-webkit-scrollbar-thumb {
   background: transparent;
   border-radius: 4px;
-  transition: background 0.2s ease;
 }
 
 *:hover::-webkit-scrollbar-thumb {
   background: rgba(0, 0, 0, 0.12);
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.25) !important;
+.dark *:hover::-webkit-scrollbar-thumb {
+  background: oklch(0.4 0.005 260);
 }
 
-/* Image reveal animation */
-@keyframes ethereal-develop {
-  0% { opacity: 0; filter: blur(30px); transform: scale(0.98); }
-  100% { opacity: 1; filter: blur(0); transform: scale(1); }
+*:hover::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.25);
 }
 
-.image-develop {
-  animation: ethereal-develop 1.2s cubic-bezier(0.2, 0, 0, 1) forwards;
+.dark *:hover::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.5 0.005 260);
 }
 
 /* Remove arrows from number inputs */

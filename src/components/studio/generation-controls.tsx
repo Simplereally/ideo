@@ -1,9 +1,8 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
-import { ChevronDown, X, Shuffle, Check } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Button } from "@/components/ui/button";
+import { ChevronDown, X, Shuffle, Film, Image as ImageIcon, Volume2 } from "lucide-react";
+import { motion } from "framer-motion";
 import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
@@ -16,26 +15,753 @@ import {
 import { useStudio } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import {
-  MODELS,
   ASPECT_RATIOS,
-  PROVIDER_LABELS,
+  getBatchSizeOptions,
   getModelConfig,
   type AspectRatio,
-  type Provider,
-  type ModelConfig,
+  type ModelCapabilities,
+  type VideoShotType,
 } from "@/lib/types";
+import { ProviderDropdown } from "@/components/studio/provider-dropdown";
+import { ModelDropdown } from "@/components/studio/model-dropdown";
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const SIDEBAR_WIDTH = 340;
+
+const PANEL_TRANSITION = {
+  width: { type: "tween" as const, duration: 0.3, ease: [0.32, 0.72, 0, 1] as [number, number, number, number] },
+  opacity: { type: "tween" as const, duration: 0.2, ease: [0.32, 0.72, 0, 1] as [number, number, number, number], delay: 0.05 },
+};
+
+// ---------------------------------------------------------------------------
+// Presentational: Primitives
+// ---------------------------------------------------------------------------
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <span className="font-sans text-[11px] font-bold text-neutral-400 tracking-wide uppercase px-2">
+    <span className="font-sans text-[11px] font-bold text-muted-foreground tracking-wide uppercase px-2">
       {children}
     </span>
   );
 }
 
-export function GenerationControls() {
+function SliderField({
+  label,
+  value,
+  onChange,
+  min,
+  max,
+  step,
+  footer,
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+  min: number;
+  max: number;
+  step: number;
+  footer?: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold text-foreground">{label}</span>
+        <span className="font-sans text-xs font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-md">
+          {value}
+        </span>
+      </div>
+      <Slider
+        value={[value]}
+        onValueChange={([val]) => onChange(val)}
+        min={min}
+        max={max}
+        step={step}
+        className="w-full"
+      />
+      {footer}
+    </div>
+  );
+}
+
+function ToggleField({
+  label,
+  checked,
+  onCheckedChange,
+}: {
+  label: string;
+  checked: boolean;
+  onCheckedChange: (v: boolean) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between p-3 rounded-xl bg-muted">
+      <span className="text-sm font-semibold text-foreground">{label}</span>
+      <Switch
+        checked={checked}
+        onCheckedChange={onCheckedChange}
+        className="data-[state=checked]:bg-primary"
+      />
+    </div>
+  );
+}
+
+function SegmentedControl<T extends string | number>({
+  label,
+  options,
+  value,
+  onChange,
+  renderLabel,
+  className: buttonClassName,
+}: {
+  label: string;
+  options: T[];
+  value: T;
+  onChange: (v: T) => void;
+  renderLabel?: (v: T) => string;
+  className?: string;
+}) {
+  return (
+    <div className="space-y-3">
+      <span className="text-xs font-semibold text-foreground">{label}</span>
+      <div className="flex gap-2 p-1 bg-muted rounded-xl">
+        {options.map((opt) => (
+          <button
+            key={String(opt)}
+            type="button"
+            onClick={() => onChange(opt)}
+            className={cn(
+              "flex-1 py-1.5 text-sm font-bold rounded-lg transition-all",
+              value === opt
+                ? "bg-card text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground",
+              buttonClassName,
+            )}
+          >
+            {renderLabel ? renderLabel(opt) : String(opt)}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Presentational: Aspect Ratio Selector
+// ---------------------------------------------------------------------------
+
+function AspectRatioSelector({
+  value,
+  onChange,
+}: {
+  value: AspectRatio;
+  onChange: (v: AspectRatio) => void;
+}) {
+  return (
+    <section className="space-y-4">
+      <SectionLabel>Aspect Ratio</SectionLabel>
+      <div className="grid grid-cols-3 gap-2 px-2">
+        {ASPECT_RATIOS.map((ar) => {
+          const isSelected = value === ar.value;
+          return (
+            <button
+              key={ar.value}
+              type="button"
+              onClick={() => onChange(ar.value)}
+              className={cn(
+                "flex flex-col items-center justify-center gap-1.5 rounded-xl py-3.5 transition-all",
+                isSelected
+                  ? "bg-primary text-primary-foreground shadow-md"
+                  : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground",
+              )}
+            >
+              <span className="text-lg leading-none opacity-80">{ar.icon}</span>
+              <span className="font-sans text-[11px] font-medium">{ar.value}</span>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Presentational: Advanced Parameters
+// ---------------------------------------------------------------------------
+
+const PERSON_GEN_OPTIONS = [
+  { value: "DONT_ALLOW", label: "None" },
+  { value: "ALLOW_ADULT", label: "Adults" },
+  { value: "ALLOW_ALL", label: "All" },
+] as const;
+
+interface AdvancedParametersProps {
+  caps: ModelCapabilities | undefined;
+  hasAdvancedControls: boolean;
+  batchSizeOptions: number[];
+  // State values
+  negativePrompt: string;
+  guidanceScale: number;
+  numInferenceSteps: number;
+  seed: string;
+  safetyTolerance: number;
+  enableSafetyChecker: boolean;
+  enhancePrompt: boolean;
+  personGeneration: string;
+  numberOfImages: number;
+  // Handlers
+  onNegativePromptChange: (v: string) => void;
+  onGuidanceScaleChange: (v: number) => void;
+  onNumInferenceStepsChange: (v: number) => void;
+  onSeedChange: (v: string) => void;
+  onSeedRandomize: () => void;
+  onSafetyToleranceChange: (v: number) => void;
+  onEnableSafetyCheckerChange: (v: boolean) => void;
+  onEnhancePromptChange: (v: boolean) => void;
+  onPersonGenerationChange: (v: string) => void;
+  onNumberOfImagesChange: (v: number) => void;
+}
+
+function AdvancedParameters({
+  caps,
+  hasAdvancedControls,
+  batchSizeOptions,
+  negativePrompt,
+  guidanceScale,
+  numInferenceSteps,
+  seed,
+  safetyTolerance,
+  enableSafetyChecker,
+  enhancePrompt,
+  personGeneration,
+  numberOfImages,
+  onNegativePromptChange,
+  onGuidanceScaleChange,
+  onNumInferenceStepsChange,
+  onSeedChange,
+  onSeedRandomize,
+  onSafetyToleranceChange,
+  onEnableSafetyCheckerChange,
+  onEnhancePromptChange,
+  onPersonGenerationChange,
+  onNumberOfImagesChange,
+}: AdvancedParametersProps) {
+  const [isOpen, setIsOpen] = useState(false);
+
+  return (
+    <section className="px-2">
+      <Collapsible open={isOpen} onOpenChange={setIsOpen}>
+        <CollapsibleTrigger asChild>
+          <button
+            type="button"
+            className="flex w-full items-center justify-between group py-2"
+          >
+            <span className="font-sans text-[13px] font-medium text-foreground">
+              Advanced Parameters
+            </span>
+            <div className="flex size-6 items-center justify-center rounded-full bg-muted group-hover:bg-muted/80 transition-colors">
+              <ChevronDown
+                className={cn(
+                  "size-3.5 text-muted-foreground transition-transform duration-300",
+                  isOpen && "rotate-180",
+                )}
+                strokeWidth={2}
+              />
+            </div>
+          </button>
+        </CollapsibleTrigger>
+
+        <CollapsibleContent>
+          <div className="space-y-6 pt-6">
+            {/* Negative Prompt */}
+            {caps?.negativePrompt && (
+              <div className="space-y-2">
+                <label
+                  htmlFor="negative-prompt"
+                  className="text-xs font-semibold text-foreground"
+                >
+                  Negative Prompt
+                </label>
+                <div className="animated-underline">
+                  <textarea
+                    id="negative-prompt"
+                    value={negativePrompt}
+                    onChange={(e) => onNegativePromptChange(e.target.value)}
+                    placeholder="Describe what to avoid..."
+                    rows={2}
+                    className="w-full resize-none rounded-xl border border-border bg-input px-3.5 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:bg-muted"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Guidance Scale */}
+            {caps?.guidanceScale && (
+              <SliderField
+                label="Guidance Scale"
+                value={guidanceScale}
+                onChange={onGuidanceScaleChange}
+                min={caps.guidanceScale.min}
+                max={caps.guidanceScale.max}
+                step={caps.guidanceScale.step}
+              />
+            )}
+
+            {/* Inference Steps */}
+            {caps?.numInferenceSteps && (
+              <SliderField
+                label="Inference Steps"
+                value={numInferenceSteps}
+                onChange={onNumInferenceStepsChange}
+                min={caps.numInferenceSteps.min}
+                max={caps.numInferenceSteps.max}
+                step={caps.numInferenceSteps.step}
+              />
+            )}
+
+            {/* Seed */}
+            {caps?.seed && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-foreground">Seed</span>
+                  <button
+                    type="button"
+                    onClick={onSeedRandomize}
+                    className="flex items-center gap-1.5 text-xs font-semibold text-primary hover:text-primary/80 transition-colors"
+                  >
+                    <Shuffle className="size-3" strokeWidth={2.5} />
+                    Randomize
+                  </button>
+                </div>
+                <div className="animated-underline">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={seed}
+                    onChange={(e) => onSeedChange(e.target.value.replace(/\D/g, ""))}
+                    placeholder="Random"
+                    className="w-full rounded-xl border border-border bg-input px-4 py-2.5 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:bg-muted"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Safety Tolerance */}
+            {caps?.safetyTolerance && (
+              <SliderField
+                label="Safety Tolerance"
+                value={safetyTolerance}
+                onChange={onSafetyToleranceChange}
+                min={caps.safetyTolerance.min}
+                max={caps.safetyTolerance.max}
+                step={caps.safetyTolerance.step}
+                footer={
+                  <div className="flex justify-between px-1">
+                    <span className="text-[10px] font-semibold text-muted-foreground">
+                      Strict
+                    </span>
+                    <span className="text-[10px] font-semibold text-muted-foreground">
+                      Permissive
+                    </span>
+                  </div>
+                }
+              />
+            )}
+
+            {/* Safety Checker */}
+            {caps?.enableSafetyChecker && (
+              <ToggleField
+                label="Safety Checker"
+                checked={enableSafetyChecker}
+                onCheckedChange={onEnableSafetyCheckerChange}
+              />
+            )}
+
+            {/* Enhance Prompt */}
+            {caps?.enhancePrompt && (
+              <ToggleField
+                label="Enhance Prompt"
+                checked={enhancePrompt}
+                onCheckedChange={onEnhancePromptChange}
+              />
+            )}
+
+            {/* Person Generation */}
+            {caps?.personGeneration && (
+              <div className="space-y-3">
+                <span className="text-xs font-semibold text-foreground">
+                  Person Generation
+                </span>
+                <div className="flex gap-2 p-1 bg-muted rounded-xl">
+                  {PERSON_GEN_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => onPersonGenerationChange(opt.value)}
+                      className={cn(
+                        "flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all",
+                        personGeneration === opt.value
+                          ? "bg-card text-foreground shadow-sm"
+                          : "text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {batchSizeOptions.length > 1 && (
+              <SegmentedControl
+                label="Batch Size"
+                options={batchSizeOptions}
+                value={numberOfImages}
+                onChange={onNumberOfImagesChange}
+              />
+            )}
+
+            {/* Empty-state hint */}
+            {!hasAdvancedControls && (
+              <div className="p-4 rounded-xl bg-primary/5 border border-primary/10">
+                <p className="text-xs font-semibold text-primary text-center">
+                  This specific model does not expose additional tuning parameters.
+                </p>
+              </div>
+            )}
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Presentational: Video Parameters
+// ---------------------------------------------------------------------------
+
+interface VideoParametersProps {
+  caps: ModelCapabilities | undefined;
+  // State values
+  duration: number;
+  videoResolution: string;
+  videoAspectRatio: string;
+  generateAudio: boolean;
+  videoImageUrl: string;
+  videoAudioUrl: string;
+  videoShotType: VideoShotType;
+  negativePrompt: string;
+  seed: string;
+  enhancePrompt: boolean;
+  // Handlers
+  onDurationChange: (v: number) => void;
+  onVideoResolutionChange: (v: string) => void;
+  onVideoAspectRatioChange: (v: string) => void;
+  onGenerateAudioChange: (v: boolean) => void;
+  onVideoImageUrlChange: (v: string) => void;
+  onVideoAudioUrlChange: (v: string) => void;
+  onVideoShotTypeChange: (v: VideoShotType) => void;
+  onNegativePromptChange: (v: string) => void;
+  onSeedChange: (v: string) => void;
+  onSeedRandomize: () => void;
+  onEnhancePromptChange: (v: boolean) => void;
+}
+
+function VideoAspectRatioSelector({
+  options,
+  value,
+  onChange,
+}: {
+  options: string[];
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const iconForRatio = (r: string) => {
+    if (r === "1:1") return "\u25A1"; // □
+    if (r === "16:9" || r === "4:3") return "\u25AD"; // ▭
+    if (r === "9:16" || r === "3:4") return "\u25AF"; // ▯
+    return "\u25A1";
+  };
+
+  return (
+    <section className="space-y-4">
+      <SectionLabel>Aspect Ratio</SectionLabel>
+      <div className="grid grid-cols-3 gap-2 px-2">
+        {options.map((ratio) => {
+          const isSelected = value === ratio;
+          return (
+            <button
+              key={ratio}
+              type="button"
+              onClick={() => onChange(ratio)}
+              className={cn(
+                "flex flex-col items-center justify-center gap-1.5 rounded-xl py-3.5 transition-all",
+                isSelected
+                  ? "bg-primary text-primary-foreground shadow-md"
+                  : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground",
+              )}
+            >
+              <span className="text-lg leading-none opacity-80">{iconForRatio(ratio)}</span>
+              <span className="font-sans text-[11px] font-medium">{ratio}</span>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function VideoParameters({
+  caps,
+  duration,
+  videoResolution,
+  videoAspectRatio,
+  generateAudio,
+  videoImageUrl,
+  videoAudioUrl,
+  videoShotType,
+  negativePrompt,
+  seed,
+  enhancePrompt,
+  onDurationChange,
+  onVideoResolutionChange,
+  onVideoAspectRatioChange,
+  onGenerateAudioChange,
+  onVideoImageUrlChange,
+  onVideoAudioUrlChange,
+  onVideoShotTypeChange,
+  onNegativePromptChange,
+  onSeedChange,
+  onSeedRandomize,
+  onEnhancePromptChange,
+}: VideoParametersProps) {
+  const hasDuration = !!caps?.durationOptions?.length;
+  const hasResolution = !!caps?.resolutionOptions?.length;
+  const hasAudio = !!caps?.generateAudio;
+  const hasImageUrl = !!caps?.imageUrl;
+  const hasAudioUrl = !!caps?.audioUrl;
+  const hasShotType = !!caps?.shotType;
+  const hasNegativePrompt = !!caps?.negativePrompt;
+  const hasSeed = !!caps?.seed;
+  const hasEnhancePrompt = !!caps?.enhancePrompt;
+
+  const hasAnyControl =
+    hasDuration || hasResolution || hasAudio || hasImageUrl || hasAudioUrl || hasShotType || hasNegativePrompt || hasSeed || hasEnhancePrompt;
+
+  return (
+    <section className="space-y-6">
+      <div className="flex items-center gap-2 px-2">
+        <Film className="size-3.5 text-primary" strokeWidth={2.5} />
+        <SectionLabel>Video Settings</SectionLabel>
+      </div>
+
+      {/* Duration */}
+      {hasDuration && (
+        <div className="px-2">
+          <SegmentedControl
+            label="Duration (seconds)"
+            options={caps!.durationOptions!}
+            value={duration}
+            onChange={onDurationChange}
+            renderLabel={(v) => `${v}s`}
+          />
+        </div>
+      )}
+
+      {/* Resolution */}
+      {hasResolution && (
+        <div className="px-2">
+          <SegmentedControl
+            label="Resolution"
+            options={caps!.resolutionOptions!}
+            value={videoResolution}
+            onChange={onVideoResolutionChange}
+          />
+        </div>
+      )}
+
+      {/* Generate Audio */}
+      {hasAudio && (
+        <div className="px-2">
+          <ToggleField
+            label="Generate Audio"
+            checked={generateAudio}
+            onCheckedChange={onGenerateAudioChange}
+          />
+        </div>
+      )}
+
+      {/* Shot Type */}
+      {hasShotType && (
+        <div className="px-2">
+          <SegmentedControl<VideoShotType>
+            label="Shot Type"
+            options={["single", "multi"]}
+            value={videoShotType}
+            onChange={onVideoShotTypeChange}
+            renderLabel={(v) => v === "single" ? "Single" : "Multi"}
+          />
+        </div>
+      )}
+
+      {/* Reference Image URL */}
+      {hasImageUrl && (
+        <div className="space-y-2 px-2">
+          <div className="flex items-center gap-1.5">
+            <ImageIcon className="size-3 text-muted-foreground" strokeWidth={2.5} />
+            <span className="text-xs font-semibold text-foreground">Reference Image URL</span>
+          </div>
+          <div className="animated-underline">
+            <input
+              type="url"
+              value={videoImageUrl}
+              onChange={(e) => onVideoImageUrlChange(e.target.value)}
+              placeholder="https://..."
+              className="w-full rounded-xl border border-border bg-input px-3.5 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:bg-muted"
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Reference Audio URL */}
+      {hasAudioUrl && (
+        <div className="space-y-2 px-2">
+          <div className="flex items-center gap-1.5">
+            <Volume2 className="size-3 text-muted-foreground" strokeWidth={2.5} />
+            <span className="text-xs font-semibold text-foreground">Reference Audio URL</span>
+          </div>
+          <div className="animated-underline">
+            <input
+              type="url"
+              value={videoAudioUrl}
+              onChange={(e) => onVideoAudioUrlChange(e.target.value)}
+              placeholder="https://..."
+              className="w-full rounded-xl border border-border bg-input px-3.5 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:bg-muted"
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Negative Prompt */}
+      {hasNegativePrompt && (
+        <div className="space-y-2 px-2">
+          <label
+            htmlFor="video-negative-prompt"
+            className="text-xs font-semibold text-foreground"
+          >
+            Negative Prompt
+          </label>
+          <div className="animated-underline">
+            <textarea
+              id="video-negative-prompt"
+              value={negativePrompt}
+              onChange={(e) => onNegativePromptChange(e.target.value)}
+              placeholder="Describe what to avoid..."
+              rows={2}
+              className="w-full resize-none rounded-xl border border-border bg-input px-3.5 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:bg-muted"
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Seed */}
+      {hasSeed && (
+        <div className="space-y-3 px-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-foreground">Seed</span>
+            <button
+              type="button"
+              onClick={onSeedRandomize}
+              className="flex items-center gap-1.5 text-xs font-semibold text-primary hover:text-primary/80 transition-colors"
+            >
+              <Shuffle className="size-3" strokeWidth={2.5} />
+              Randomize
+            </button>
+          </div>
+          <div className="animated-underline">
+            <input
+              type="text"
+              inputMode="numeric"
+              value={seed}
+              onChange={(e) => onSeedChange(e.target.value.replace(/\D/g, ""))}
+              placeholder="Random"
+              className="w-full rounded-xl border border-border bg-input px-4 py-2.5 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:bg-muted"
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Enhance Prompt */}
+      {hasEnhancePrompt && (
+        <div className="px-2">
+          <ToggleField
+            label="Enhance Prompt"
+            checked={enhancePrompt}
+            onCheckedChange={onEnhancePromptChange}
+          />
+        </div>
+      )}
+
+      {/* Empty-state hint */}
+      {!hasAnyControl && (
+        <div className="p-4 rounded-xl bg-primary/5 border border-primary/10 mx-2">
+          <p className="text-xs font-semibold text-primary text-center">
+            This video model does not expose additional tuning parameters.
+          </p>
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Presentational: Panel Header
+// ---------------------------------------------------------------------------
+
+function PanelHeader({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-card z-10 shrink-0">
+      <h2 className="text-[15px] font-semibold text-foreground tracking-tight">
+        Settings
+      </h2>
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Close settings"
+        className="flex size-7 items-center justify-center rounded-full bg-muted text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground"
+      >
+        <X className="size-3.5" strokeWidth={2.5} />
+      </button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function useHasAdvancedControls(caps: ModelCapabilities | undefined): boolean {
+  return !!(
+    caps?.negativePrompt ||
+    caps?.guidanceScale ||
+    caps?.numInferenceSteps ||
+    caps?.seed ||
+    caps?.safetyTolerance ||
+    caps?.enableSafetyChecker ||
+    caps?.enhancePrompt ||
+    caps?.personGeneration
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Feature: GenerationControls (container)
+// ---------------------------------------------------------------------------
+
+export function GenerationControls({ overlay }: { overlay?: boolean } = {}) {
   const {
     state,
+    setProvider,
     setModel,
     setAspectRatio,
     setNegativePrompt,
@@ -47,401 +773,166 @@ export function GenerationControls() {
     setEnableSafetyChecker,
     setEnhancePrompt,
     setPersonGeneration,
+    setDuration,
+    setVideoResolution,
+    setVideoAspectRatio,
+    setGenerateAudio,
+    setVideoImageUrl,
+    setVideoAudioUrl,
+    setVideoShotType,
     toggleControls,
   } = useStudio();
 
-  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  // Current model capabilities
-  const modelConfig = useMemo(
-    () => getModelConfig(state.model),
-    [state.model],
-  );
+  const modelConfig = useMemo(() => getModelConfig(state.model), [state.model]);
   const caps = modelConfig?.capabilities;
-
-  const hasAdvancedControls = !!(
-    caps?.negativePrompt ||
-    caps?.guidanceScale ||
-    caps?.numInferenceSteps ||
-    caps?.seed ||
-    caps?.safetyTolerance ||
-    caps?.enableSafetyChecker ||
-    caps?.enhancePrompt ||
-    caps?.personGeneration
-  );
-
-  const groupedModels = useMemo(() => {
-    const groups: { provider: Provider; label: string; models: ModelConfig[] }[] = [];
-    let currentProvider: Provider | null = null;
-    for (const model of MODELS) {
-      if (model.provider !== currentProvider) {
-        currentProvider = model.provider;
-        groups.push({
-          provider: model.provider,
-          label: PROVIDER_LABELS[model.provider],
-          models: [],
-        });
-      }
-      groups[groups.length - 1].models.push(model);
-    }
-    return groups;
-  }, []);
+  const isVideo = modelConfig?.kind === "video";
+  const hasAdvanced = useHasAdvancedControls(caps);
 
   if (!mounted) return null;
 
-  return (
-    <AnimatePresence initial={false}>
-      {state.isControlsOpen && (
-        <motion.aside
-          initial={{ width: 0, opacity: 0 }}
-          animate={{ width: 340, opacity: 1 }}
-          exit={{ width: 0, opacity: 0 }}
-          transition={{ type: "spring", damping: 28, stiffness: 250 }}
-          className="flex flex-col shrink-0 h-full overflow-hidden"
-        >
-          <div className="w-[340px] h-full flex flex-col bg-white rounded-3xl border border-black/[0.04] shadow-sm">
-            {/* Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-black/[0.04] bg-white z-10 shrink-0">
-              <h2 className="text-[15px] font-semibold text-black tracking-tight">Settings</h2>
-              <button
-                type="button"
-                onClick={toggleControls}
-                className="flex size-7 items-center justify-center rounded-full bg-black/5 text-neutral-500 transition-colors hover:bg-black/10 hover:text-black"
-              >
-                <X className="size-3.5" strokeWidth={2.5} />
-              </button>
-            </div>
+  // -- Shared panel content --
+  const panelContent = (
+    <div className="h-full flex flex-col bg-card rounded-3xl border border-border shadow-sm">
+      <PanelHeader onClose={toggleControls} />
 
-            <div className="flex-1 overflow-hidden">
-              <ScrollArea className="h-full">
-                <div className="flex flex-col gap-8 p-6 pb-12">
-                  
-                  {/* ---- Model ---- */}
-                  <section className="space-y-3">
-                    <SectionLabel>Model</SectionLabel>
-                    <div className="flex flex-col gap-6 pt-1">
-                      {groupedModels.map((group) => (
-                        <div key={group.provider} className="space-y-2">
-                          <span className="text-[10px] font-bold tracking-widest text-[#0071E3] uppercase px-2">
-                            {group.label}
-                          </span>
-                          <div className="ios-list">
-                            {group.models.map((model) => {
-                              const isSelected = state.model === model.id;
-                              return (
-                                <button
-                                  key={model.id}
-                                  type="button"
-                                  onClick={() => setModel(model.id)}
-                                  className={cn(
-                                    "ios-list-item flex items-center justify-between gap-2 w-full p-3.5 transition-colors",
-                                    isSelected && "selected"
-                                  )}
-                                >
-                                  <div className="flex flex-col gap-0.5 text-left">
-                                    <span className={cn(
-                                      "text-[13px] font-medium tracking-tight",
-                                      isSelected ? "text-[#0071E3]" : "text-black"
-                                    )}>
-                                      {model.label}
-                                    </span>
-                                    <span className="text-[11px] text-neutral-500">
-                                      {model.description}
-                                    </span>
-                                  </div>
-                                  {isSelected && <Check className="size-4 text-[#0071E3]" strokeWidth={2.5} />}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </section>
+      <div className="flex-1 overflow-hidden">
+        <ScrollArea className="h-full">
+          <div className="flex flex-col gap-8 p-6 pb-12">
+            {/* Provider */}
+            <section className="space-y-3">
+              <SectionLabel>Provider</SectionLabel>
+              <div className="px-2">
+                <ProviderDropdown
+                  value={state.provider}
+                  onChange={setProvider}
+                />
+              </div>
+            </section>
 
-                  <Separator className="bg-black/5 mx-2" />
+            {/* Model */}
+            <section className="space-y-3">
+              <SectionLabel>Model</SectionLabel>
+              <div className="px-2">
+                <ModelDropdown
+                  provider={state.provider}
+                  value={state.model}
+                  onChange={setModel}
+                />
+              </div>
+            </section>
 
-                  {/* ---- Aspect Ratio ---- */}
-                  <section className="space-y-4">
-                    <SectionLabel>Aspect Ratio</SectionLabel>
-                    <div className="grid grid-cols-3 gap-2 px-2">
-                      {ASPECT_RATIOS.map((ar) => {
-                        const isSelected = state.aspectRatio === ar.value;
-                        return (
-                          <button
-                            key={ar.value}
-                            type="button"
-                            onClick={() => setAspectRatio(ar.value as AspectRatio)}
-                            className={cn(
-                              "flex flex-col items-center justify-center gap-1.5 rounded-xl py-3.5 transition-all",
-                              isSelected
-                                ? "bg-black text-white shadow-md"
-                                : "bg-black/5 text-neutral-500 hover:bg-black/10 hover:text-black"
-                            )}
-                          >
-                            <span className="text-lg leading-none opacity-80">{ar.icon}</span>
-                            <span className="font-sans text-[11px] font-medium">{ar.value}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </section>
+            <Separator className="bg-border mx-2" />
 
-                  <Separator className="bg-black/5 mx-2" />
+            {/* ---- Mode-aware controls ---- */}
+            {isVideo ? (
+              <>
+                {caps?.videoAspectRatios?.length ? (
+                  <>
+                    <VideoAspectRatioSelector
+                      options={caps.videoAspectRatios}
+                      value={state.videoAspectRatio}
+                      onChange={setVideoAspectRatio}
+                    />
+                    <Separator className="bg-border mx-2" />
+                  </>
+                ) : null}
 
-                  {/* ---- Advanced Parameters ---- */}
-                  <section className="px-2">
-                    <Collapsible
-                      open={advancedOpen}
-                      onOpenChange={setAdvancedOpen}
-                    >
-                      <CollapsibleTrigger asChild>
-                        <button
-                          type="button"
-                          className="flex w-full items-center justify-between group py-2"
-                        >
-                          <span className="font-sans text-[13px] font-medium text-black">
-                            Advanced Parameters
-                          </span>
-                          <div className="flex size-6 items-center justify-center rounded-full bg-black/5 group-hover:bg-black/10 transition-colors">
-                            <ChevronDown
-                              className={cn(
-                                "size-3.5 text-neutral-500 transition-transform duration-300",
-                                advancedOpen && "rotate-180"
-                              )}
-                              strokeWidth={2}
-                            />
-                          </div>
-                        </button>
-                      </CollapsibleTrigger>
-                      
-                      <CollapsibleContent>
-                        <div className="space-y-6 pt-6">
-                          {/* Negative prompt — capability-gated */}
-                          {caps?.negativePrompt && (
-                            <div className="space-y-2">
-                              <label
-                                htmlFor="negative-prompt"
-                                className="text-xs font-semibold text-neutral-700"
-                              >
-                                Negative Prompt
-                              </label>
-                              <div className="animated-underline">
-                                <textarea
-                                  id="negative-prompt"
-                                  value={state.negativePrompt}
-                                  onChange={(e) => setNegativePrompt(e.target.value)}
-                                  placeholder="Describe what to avoid..."
-                                  rows={2}
-                                  className="w-full resize-none rounded-xl border border-black/5 bg-black/[0.02] px-3.5 py-3 text-sm text-black placeholder:text-neutral-400 focus:outline-none focus:bg-black/5"
-                                />
-                              </div>
-                            </div>
-                          )}
+                <VideoParameters
+                  caps={caps}
+                  duration={state.duration}
+                  videoResolution={state.videoResolution}
+                  videoAspectRatio={state.videoAspectRatio}
+                  generateAudio={state.generateAudio}
+                  videoImageUrl={state.videoImageUrl}
+                  videoAudioUrl={state.videoAudioUrl}
+                  videoShotType={state.videoShotType}
+                  negativePrompt={state.negativePrompt}
+                  seed={state.seed}
+                  enhancePrompt={state.enhancePrompt}
+                  onDurationChange={setDuration}
+                  onVideoResolutionChange={setVideoResolution}
+                  onVideoAspectRatioChange={setVideoAspectRatio}
+                  onGenerateAudioChange={setGenerateAudio}
+                  onVideoImageUrlChange={setVideoImageUrl}
+                  onVideoAudioUrlChange={setVideoAudioUrl}
+                  onVideoShotTypeChange={setVideoShotType}
+                  onNegativePromptChange={setNegativePrompt}
+                  onSeedChange={setSeed}
+                  onSeedRandomize={() =>
+                    setSeed(String(Math.floor(Math.random() * 2147483647)))
+                  }
+                  onEnhancePromptChange={setEnhancePrompt}
+                />
+              </>
+            ) : (
+              <>
+                <AspectRatioSelector
+                  value={state.aspectRatio}
+                  onChange={setAspectRatio}
+                />
 
-                          {/* Guidance Scale — fal models only */}
-                          {caps?.guidanceScale && (
-                            <div className="space-y-3">
-                              <div className="flex items-center justify-between">
-                                <span className="text-xs font-semibold text-neutral-700">
-                                  Guidance Scale
-                                </span>
-                                <span className="font-sans text-xs font-bold text-[#0071E3] bg-[#0071E3]/10 px-2 py-0.5 rounded-md">
-                                  {state.guidanceScale}
-                                </span>
-                              </div>
-                              <Slider
-                                value={[state.guidanceScale]}
-                                onValueChange={([val]) => setGuidanceScale(val)}
-                                min={caps.guidanceScale.min}
-                                max={caps.guidanceScale.max}
-                                step={caps.guidanceScale.step}
-                                className="w-full"
-                              />
-                            </div>
-                          )}
+                <Separator className="bg-border mx-2" />
 
-                          {/* Inference Steps — fal models only */}
-                          {caps?.numInferenceSteps && (
-                            <div className="space-y-3">
-                              <div className="flex items-center justify-between">
-                                <span className="text-xs font-semibold text-neutral-700">
-                                  Inference Steps
-                                </span>
-                                <span className="font-sans text-xs font-bold text-[#0071E3] bg-[#0071E3]/10 px-2 py-0.5 rounded-md">
-                                  {state.numInferenceSteps}
-                                </span>
-                              </div>
-                              <Slider
-                                value={[state.numInferenceSteps]}
-                                onValueChange={([val]) => setNumInferenceSteps(val)}
-                                min={caps.numInferenceSteps.min}
-                                max={caps.numInferenceSteps.max}
-                                step={caps.numInferenceSteps.step}
-                                className="w-full"
-                              />
-                            </div>
-                          )}
-
-                          {/* Seed — models that support it */}
-                          {caps?.seed && (
-                            <div className="space-y-3">
-                              <div className="flex items-center justify-between">
-                                <span className="text-xs font-semibold text-neutral-700">
-                                  Seed
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() => setSeed(String(Math.floor(Math.random() * 2147483647)))}
-                                  className="flex items-center gap-1.5 text-xs font-semibold text-[#0071E3] hover:text-[#005bb5] transition-colors"
-                                >
-                                  <Shuffle className="size-3" strokeWidth={2.5} />
-                                  Randomize
-                                </button>
-                              </div>
-                              <div className="animated-underline">
-                                <input
-                                  type="text"
-                                  inputMode="numeric"
-                                  value={state.seed}
-                                  onChange={(e) => setSeed(e.target.value.replace(/\D/g, ""))}
-                                  placeholder="Random"
-                                  className="w-full rounded-xl border border-black/5 bg-black/[0.02] px-4 py-2.5 font-mono text-sm text-black placeholder:text-neutral-400 focus:outline-none focus:bg-black/5"
-                                />
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Safety Tolerance — fal-pro only (1-6 slider) */}
-                          {caps?.safetyTolerance && (
-                            <div className="space-y-3">
-                              <div className="flex items-center justify-between">
-                                <span className="text-xs font-semibold text-neutral-700">
-                                  Safety Tolerance
-                                </span>
-                                <span className="font-sans text-xs font-bold text-[#0071E3] bg-[#0071E3]/10 px-2 py-0.5 rounded-md">
-                                  {state.safetyTolerance}
-                                </span>
-                              </div>
-                              <Slider
-                                value={[state.safetyTolerance]}
-                                onValueChange={([val]) => setSafetyTolerance(val)}
-                                min={caps.safetyTolerance.min}
-                                max={caps.safetyTolerance.max}
-                                step={caps.safetyTolerance.step}
-                                className="w-full"
-                              />
-                              <div className="flex justify-between px-1">
-                                <span className="text-[10px] font-semibold text-neutral-400">Strict</span>
-                                <span className="text-[10px] font-semibold text-neutral-400">Permissive</span>
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Safety Checker toggle — fal dev/realism only */}
-                          {caps?.enableSafetyChecker && (
-                            <div className="flex items-center justify-between p-3 rounded-xl bg-black/5">
-                              <span className="text-sm font-semibold text-neutral-700">
-                                Safety Checker
-                              </span>
-                              <Switch
-                                checked={state.enableSafetyChecker}
-                                onCheckedChange={setEnableSafetyChecker}
-                                className="data-[state=checked]:bg-[#0071E3]"
-                              />
-                            </div>
-                          )}
-
-                          {/* Enhance Prompt toggle — vertex imagen models */}
-                          {caps?.enhancePrompt && (
-                            <div className="flex items-center justify-between p-3 rounded-xl bg-black/5">
-                              <span className="text-sm font-semibold text-neutral-700">
-                                Enhance Prompt
-                              </span>
-                              <Switch
-                                checked={state.enhancePrompt}
-                                onCheckedChange={setEnhancePrompt}
-                                className="data-[state=checked]:bg-[#0071E3]"
-                              />
-                            </div>
-                          )}
-
-                          {/* Person Generation — vertex imagen models */}
-                          {caps?.personGeneration && (
-                            <div className="space-y-3">
-                              <span className="text-xs font-semibold text-neutral-700">
-                                Person Generation
-                              </span>
-                              <div className="flex gap-2 p-1 bg-black/5 rounded-xl">
-                                {[
-                                  { value: "DONT_ALLOW", label: "None" },
-                                  { value: "ALLOW_ADULT", label: "Adults" },
-                                  { value: "ALLOW_ALL", label: "All" },
-                                ].map((opt) => (
-                                  <button
-                                    key={opt.value}
-                                    type="button"
-                                    onClick={() => setPersonGeneration(opt.value)}
-                                    className={cn(
-                                      "flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all",
-                                      state.personGeneration === opt.value
-                                        ? "bg-white text-black shadow-sm"
-                                        : "text-neutral-500 hover:text-black"
-                                    )}
-                                  >
-                                    {opt.label}
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Number of Images — always available */}
-                          <div className="space-y-3">
-                            <span className="text-xs font-semibold text-neutral-700">
-                              Batch Size
-                            </span>
-                            <div className="flex gap-2 p-1 bg-black/5 rounded-xl">
-                              {[1, 2, 3, 4].map((n) => (
-                                <button
-                                  key={n}
-                                  type="button"
-                                  onClick={() => setNumberOfImages(n)}
-                                  className={cn(
-                                    "flex-1 py-1.5 text-sm font-bold rounded-lg transition-all",
-                                    state.numberOfImages === n
-                                      ? "bg-white text-black shadow-sm"
-                                      : "text-neutral-500 hover:text-black"
-                                  )}
-                                >
-                                  {n}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-
-                          {!hasAdvancedControls && (
-                            <div className="p-4 rounded-xl bg-[#0071E3]/5 border border-[#0071E3]/10">
-                              <p className="text-xs font-semibold text-[#0071E3] text-center">
-                                This specific model does not expose additional tuning parameters.
-                              </p>
-                            </div>
-                          )}
-                        </div>
-                      </CollapsibleContent>
-                    </Collapsible>
-                  </section>
-                </div>
-              </ScrollArea>
-            </div>
+                <AdvancedParameters
+                  caps={caps}
+                  hasAdvancedControls={hasAdvanced}
+                  batchSizeOptions={getBatchSizeOptions(state.model)}
+                  negativePrompt={state.negativePrompt}
+                  guidanceScale={state.guidanceScale}
+                  numInferenceSteps={state.numInferenceSteps}
+                  seed={state.seed}
+                  safetyTolerance={state.safetyTolerance}
+                  enableSafetyChecker={state.enableSafetyChecker}
+                  enhancePrompt={state.enhancePrompt}
+                  personGeneration={state.personGeneration}
+                  numberOfImages={state.numberOfImages}
+                  onNegativePromptChange={setNegativePrompt}
+                  onGuidanceScaleChange={setGuidanceScale}
+                  onNumInferenceStepsChange={setNumInferenceSteps}
+                  onSeedChange={setSeed}
+                  onSeedRandomize={() =>
+                    setSeed(String(Math.floor(Math.random() * 2147483647)))
+                  }
+                  onSafetyToleranceChange={setSafetyTolerance}
+                  onEnableSafetyCheckerChange={setEnableSafetyChecker}
+                  onEnhancePromptChange={setEnhancePrompt}
+                  onPersonGenerationChange={setPersonGeneration}
+                  onNumberOfImagesChange={setNumberOfImages}
+                />
+              </>
+            )}
           </div>
-        </motion.aside>
-      )}
-    </AnimatePresence>
+        </ScrollArea>
+      </div>
+    </div>
+  );
+
+  // Overlay mode: parent handles positioning & transform.
+  if (overlay) {
+    return <div className="h-full w-full">{panelContent}</div>;
+  }
+
+  // Desktop mode: animated width sidebar in flex flow.
+  return (
+    <motion.aside
+      initial={false}
+      animate={{ width: state.isControlsOpen ? SIDEBAR_WIDTH : 0 }}
+      transition={PANEL_TRANSITION.width}
+      className="flex flex-col shrink-0 h-full overflow-hidden"
+      aria-hidden={!state.isControlsOpen}
+      {...(!state.isControlsOpen && { inert: true })}
+    >
+      <motion.div
+        initial={false}
+        animate={{ opacity: state.isControlsOpen ? 1 : 0 }}
+        transition={{ duration: 0.2, ease: [0.32, 0.72, 0, 1], delay: state.isControlsOpen ? 0.05 : 0 }}
+        className="min-w-[340px] h-full"
+      >
+        {panelContent}
+      </motion.div>
+    </motion.aside>
   );
 }
