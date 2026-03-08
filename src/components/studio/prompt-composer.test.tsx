@@ -29,9 +29,7 @@
  */
 
 import { render, screen, fireEvent } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { useState, createContext, useContext, type ReactNode } from "react";
 
 // ---------------------------------------------------------------------------
 // We need to mock modules that the component imports but that are irrelevant

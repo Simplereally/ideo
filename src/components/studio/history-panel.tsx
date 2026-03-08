@@ -570,7 +570,7 @@ export function HistoryPanel({ overlay }: { overlay?: boolean } = {}) {
             job={item.job}
             onCancel={() => cancelImageJob(item.job.id)}
             onRemove={() => removeImageJob(item.job.id)}
-            onRetry={() => retryImageJob(item.job.id)}
+            onRetry={() => void retryImageJob(item.job.id)}
           />
         );
       default:
