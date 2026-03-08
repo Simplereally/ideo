@@ -639,13 +639,15 @@ export const MODELS: ModelConfig[] = [
     id: "airforce:wan-2.6",
     value: "wan-2.6",
     label: "Wan 2.6",
-    description: "Alibaba's advanced image model",
+    description: "Alibaba's video model exposed through Airforce",
     provider: "airforce",
-    kind: "image",
+    kind: "video",
     capabilities: {
-      seed: true,
-      negativePrompt: true,
-      aspectRatios: ["1:1", "16:9", "9:16", "4:3", "3:4"],
+      durationOptions: [5, 10, 15],
+      resolutionOptions: ["720P", "1080P"],
+      videoAspectRatios: ["16:9", "9:16"],
+      generateAudio: true,
+      imageUrl: true,
     },
   },
 
@@ -658,8 +660,9 @@ export const MODELS: ModelConfig[] = [
     provider: "airforce",
     kind: "video",
     capabilities: {
-      videoAspectRatios: ["16:9", "9:16", "1:1"],
-      durationOptions: [5, 10],
+      videoAspectRatios: ["3:2", "2:3", "1:1"],
+      resolutionOptions: ["480p", "720p"],
+      imageUrl: true,
     },
   },
   {
@@ -670,7 +673,9 @@ export const MODELS: ModelConfig[] = [
     provider: "airforce",
     kind: "video",
     capabilities: {
-      durationOptions: [5, 10],
+      durationOptions: [10, 15],
+      videoAspectRatios: ["portrait", "landscape"],
+      imageUrl: true,
     },
   },
   {
@@ -681,7 +686,8 @@ export const MODELS: ModelConfig[] = [
     provider: "airforce",
     kind: "video",
     capabilities: {
-      durationOptions: [5, 8],
+      videoAspectRatios: ["16:9", "9:16"],
+      imageUrl: true,
     },
   },
 ];

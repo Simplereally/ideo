@@ -8,7 +8,6 @@ import { HistoryPanel } from "./history-panel";
 import { GenerationControls } from "./generation-controls";
 import { ApiKeyDialog } from "./api-key-dialog";
 import { ImageViewer } from "./image-viewer";
-import { ActiveJobsMonitor } from "./active-jobs-monitor";
 import { GenerationActionsProvider } from "./generation-actions";
 import { useStudio } from "@/lib/store";
 import { Clock, SlidersHorizontal } from "lucide-react";
@@ -110,7 +109,6 @@ export function StudioLayout() {
 
             <div className="relative min-h-0 flex-1">
               <StudioCanvas />
-              <ActiveJobsMonitor />
             </div>
             <div className="shrink-0 px-3 pb-3 pt-2 sm:px-4 sm:pb-4 sm:pt-3">
               <PromptComposer />

@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { getVideoGeneration } from "./aiml-video";
+import { getVideoGeneration } from "./video-generation";
 import { buildProviderCredentials } from "./provider-credentials";
 import type { SettingsState } from "@/store/settings";
 
@@ -63,16 +63,18 @@ afterEach(() => {
  * `startPollingJob`. This mirrors the real code:
  *
  * ```ts
- * const creds = buildProviderCredentials("aiml", useSettingsStore.getState());
- * const apiKey = creds && "apiKey" in creds ? creds.apiKey : undefined;
- * return getVideoGeneration(jobId, apiKey);
+ * const credentials = buildProviderCredentials("aiml", useSettingsStore.getState());
+ * return getVideoGeneration({ provider: "aiml", generationId: jobId, credentials });
  * ```
  */
 function makeFetcher(jobId: string) {
   return () => {
-    const creds = buildProviderCredentials("aiml", useSettingsStore.getState());
-    const apiKey = creds && "apiKey" in creds ? creds.apiKey : undefined;
-    return getVideoGeneration(jobId, apiKey);
+    const credentials = buildProviderCredentials("aiml", useSettingsStore.getState());
+    return getVideoGeneration({
+      provider: "aiml",
+      generationId: jobId,
+      credentials,
+    });
   };
 }
 

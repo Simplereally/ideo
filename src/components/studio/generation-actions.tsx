@@ -15,10 +15,11 @@ import {
   getMaxImagesForModel,
   getModelConfig,
   type GeneratedImage,
+  type Provider,
   type VideoJob,
   type VideoRequestParams,
 } from "@/lib/types";
-import { createVideoGeneration, getVideoGeneration } from "@/lib/services/aiml-video";
+import { createVideoGeneration, getVideoGeneration } from "@/lib/services/video-generation";
 import { pollVideoGeneration, type PollHandle } from "@/lib/services/video-polling";
 import { useVideoJobsStore } from "@/store/video-jobs";
 import { useImageJobsStore, type ImageJob, type ImageRetryPayload } from "@/store/image-jobs";
@@ -201,11 +202,19 @@ export function GenerationActionsProvider({
   const isSubmittingVideoRef = useRef(false);
 
   const startPollingJob = useCallback(
-    (jobId: string) => {
+    (jobId: string, provider: Provider) => {
       if (pollHandlesRef.current.has(jobId)) return;
 
       const handle = pollVideoGeneration(
-        () => getVideoGeneration(jobId),
+        () =>
+          getVideoGeneration({
+            provider,
+            generationId: jobId,
+            credentials: buildProviderCredentials(
+              provider,
+              useSettingsStore.getState(),
+            ),
+          }),
         {
           onStatus: (status, result) => {
             const currentJob = useVideoJobsStore
@@ -374,6 +383,7 @@ export function GenerationActionsProvider({
         );
 
         const createResult = await createVideoGeneration({
+          provider,
           model: modelConfig.value,
           params: { ...params, prompt },
           credentials,
@@ -398,15 +408,23 @@ export function GenerationActionsProvider({
           selectVideoJob(createResult.id);
         }
 
-        toast.success(successToastTitle, {
-          description: `Job ${createResult.id.slice(0, 8)}... is queued.`,
-        });
-
         if (clearPrompt) {
           setPrompt("");
         }
 
-        startPollingJob(createResult.id);
+        if (createResult.status === "completed" && createResult.videoUrl) {
+          markVideoJobCompleted(createResult.id, createResult.videoUrl);
+          toast.success(successToastTitle, {
+            description: "Video generated successfully.",
+          });
+          return;
+        }
+
+        toast.success(successToastTitle, {
+          description: `Job ${createResult.id.slice(0, 8)}... is queued.`,
+        });
+
+        startPollingJob(createResult.id, provider);
       } catch (error: unknown) {
         const message =
           error instanceof Error
@@ -420,6 +438,7 @@ export function GenerationActionsProvider({
     },
     [
       addVideoJob,
+      markVideoJobCompleted,
       removeVideoJob,
       selectVideoJob,
       setPrompt,
@@ -437,7 +456,7 @@ export function GenerationActionsProvider({
         provider: state.provider,
         params: videoParams,
         clearPrompt: true,
-        selectNewJob: false,
+        selectNewJob: true,
         successToastTitle: "Video generation submitted",
       });
       return;
@@ -501,7 +520,7 @@ export function GenerationActionsProvider({
       .jobs.filter((job) => job.status === "queued" || job.status === "generating");
 
     for (const job of activeJobs) {
-      startPollingJob(job.id);
+      startPollingJob(job.id, job.provider);
     }
   }, [startPollingJob]);
 

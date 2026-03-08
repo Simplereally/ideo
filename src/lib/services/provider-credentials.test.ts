@@ -311,7 +311,7 @@ describe("BYOK credentials in video generation", () => {
 
   it("includes aiml credentials in video creation request when set", async () => {
     // Dynamic import to pick up the mocked fetch
-    const { createVideoGeneration } = await import("./aiml-video");
+    const { createVideoGeneration } = await import("./video-generation");
 
     const credentials = buildProviderCredentials("aiml", {
       ...EMPTY_SETTINGS,
@@ -319,6 +319,7 @@ describe("BYOK credentials in video generation", () => {
     });
 
     await createVideoGeneration({
+      provider: "aiml",
       model: "test-video-model",
       params: { prompt: "a dancing cat" },
       credentials,
@@ -329,11 +330,12 @@ describe("BYOK credentials in video generation", () => {
   });
 
   it("omits credentials from video request when key is empty", async () => {
-    const { createVideoGeneration } = await import("./aiml-video");
+    const { createVideoGeneration } = await import("./video-generation");
 
     const credentials = buildProviderCredentials("aiml", EMPTY_SETTINGS);
 
     await createVideoGeneration({
+      provider: "aiml",
       model: "test-video-model",
       params: { prompt: "a dancing cat" },
       credentials,

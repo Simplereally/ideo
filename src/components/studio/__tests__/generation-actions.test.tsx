@@ -5,13 +5,14 @@ import { getModelConfig } from "@/lib/types";
 
 const mocks = vi.hoisted(() => ({
   createVideoGeneration: vi.fn(),
+  getVideoGeneration: vi.fn(),
   pollVideoGeneration: vi.fn(),
   buildProviderCredentials: vi.fn(() => undefined),
   injectCredentials: vi.fn((payload) => payload),
   completeGeneration: vi.fn(),
   setPrompt: vi.fn(),
   studioState: {
-    provider: "aiml" as "aiml" | "google" | "vertex" | "fal",
+    provider: "aiml" as "aiml" | "google" | "vertex" | "fal" | "airforce",
     prompt: "",
     negativePrompt: "",
     aspectRatio: "1:1" as const,
@@ -68,9 +69,9 @@ const mocks = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("@/lib/services/aiml-video", () => ({
+vi.mock("@/lib/services/video-generation", () => ({
   createVideoGeneration: mocks.createVideoGeneration,
-  getVideoGeneration: vi.fn(),
+  getVideoGeneration: mocks.getVideoGeneration,
 }));
 
 vi.mock("@/lib/services/video-polling", () => ({
@@ -236,6 +237,7 @@ describe("GenerationActionsProvider", () => {
 
       await waitFor(() => {
         expect(mocks.createVideoGeneration).toHaveBeenCalledWith({
+          provider: "aiml",
           model: getModelConfig(videoModelId)!.value,
           params: retryPayload.params,
           credentials: undefined,
@@ -332,6 +334,67 @@ describe("GenerationActionsProvider", () => {
       );
     },
   );
+
+  it("completes direct-result Airforce video jobs without polling", async () => {
+    mocks.studioState.provider = "airforce" as const;
+    mocks.studioState.model = "airforce:wan-2.6";
+    mocks.studioState.prompt = "A neon koi fish swimming through clouds";
+    mocks.studioState.videoAspectRatio = "9:16";
+    mocks.studioState.videoResolution = "720P";
+    mocks.studioState.duration = 5;
+    mocks.studioState.generateAudio = true;
+
+    mocks.createVideoGeneration.mockResolvedValue({
+      id: "airforce-video-1",
+      status: "completed",
+      videoUrl: "https://example.com/wan.mp4",
+      error: null,
+      meta: {},
+    });
+
+    render(
+      <GenerationActionsProvider>
+        <Harness />
+      </GenerationActionsProvider>,
+    );
+
+    await userEvent
+      .setup()
+      .click(screen.getByRole("button", { name: /generate image/i }));
+
+    await waitFor(() => {
+      expect(mocks.createVideoGeneration).toHaveBeenCalledWith({
+        provider: "airforce",
+        model: "wan-2.6",
+        params: {
+          prompt: "A neon koi fish swimming through clouds",
+          duration: 5,
+          resolution: "720P",
+          aspectRatio: "9:16",
+          generateAudio: true,
+        },
+        credentials: undefined,
+      });
+    });
+
+    expect(mocks.videoStoreState.addJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "airforce-video-1",
+        model: "airforce:wan-2.6",
+        provider: "airforce",
+        status: "completed",
+      }),
+    );
+    expect(mocks.videoStoreState.selectJob).toHaveBeenCalledWith(
+      "airforce-video-1",
+    );
+    expect(mocks.videoStoreState.markJobCompleted).toHaveBeenCalledWith(
+      "airforce-video-1",
+      "https://example.com/wan.mp4",
+    );
+    expect(mocks.pollVideoGeneration).not.toHaveBeenCalled();
+    expect(mocks.setPrompt).toHaveBeenCalledWith("");
+  });
 
   it("forwards batch size and records every returned image for image generation", async () => {
     mocks.studioState.prompt = "A brutalist house in fog";

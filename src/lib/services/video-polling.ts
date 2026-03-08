@@ -1,5 +1,5 @@
 import type { VideoGenerationStatus } from "@/lib/types";
-import type { AimlVideoResult } from "./aiml-video";
+import type { VideoGenerationResult } from "./video-generation-types";
 
 // ---------------------------------------------------------------------------
 // Video generation polling utility
@@ -33,17 +33,17 @@ export interface PollOptions {
    * Called after every successful poll tick with the latest result.
    * Useful for logging or lightweight side-effects.
    */
-  onTick?: (result: AimlVideoResult, elapsedMs: number) => void;
+  onTick?: (result: VideoGenerationResult, elapsedMs: number) => void;
   /**
    * Called whenever the normalized status changes compared to the
    * previous tick. First tick always fires.
    */
-  onStatus?: (status: VideoGenerationStatus, result: AimlVideoResult) => void;
+  onStatus?: (status: VideoGenerationStatus, result: VideoGenerationResult) => void;
 }
 
 export interface PollHandle {
   /** Resolves with the final result once a terminal status is reached or timeout fires. */
-  promise: Promise<AimlVideoResult>;
+  promise: Promise<VideoGenerationResult>;
   /** Abort polling early. The promise will resolve with the last known result. */
   cancel: () => void;
 }
@@ -57,15 +57,15 @@ export interface PollHandle {
  * timeout expires.
  *
  * The `fetcher` parameter decouples this utility from the HTTP layer — callers
- * pass a closure over `getVideoGeneration(id)` so the poller stays
+ * pass a closure over `getVideoGeneration(...)` so the poller stays
  * framework-agnostic and easily testable.
  *
- * @param fetcher — async function that returns an `AimlVideoResult` for one poll tick.
+ * @param fetcher — async function that returns a normalized video result for one poll tick.
  * @param opts    — interval, timeout, and optional callbacks.
  * @returns       A handle with a promise (final result) and a cancel function.
  */
 export function pollVideoGeneration(
-  fetcher: () => Promise<AimlVideoResult>,
+  fetcher: () => Promise<VideoGenerationResult>,
   opts: PollOptions = {},
 ): PollHandle {
   const baseInterval = opts.intervalMs ?? 10_000;
@@ -79,9 +79,9 @@ export function pollVideoGeneration(
   let tickCount = 0;
 
   // Resolve the outer promise from inside the loop.
-  let resolve: (result: AimlVideoResult) => void;
+  let resolve: (result: VideoGenerationResult) => void;
 
-  const promise = new Promise<AimlVideoResult>((_resolve) => {
+  const promise = new Promise<VideoGenerationResult>((_resolve) => {
     resolve = _resolve;
   });
 
@@ -104,7 +104,7 @@ export function pollVideoGeneration(
 
   // Track the last status for the `onStatus` delta callback.
   let lastStatus: VideoGenerationStatus | null = null;
-  let lastResult: AimlVideoResult | null = null;
+  let lastResult: VideoGenerationResult | null = null;
   const startTime = Date.now();
 
   const tick = async () => {

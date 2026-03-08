@@ -1,5 +1,10 @@
 import type { VideoGenerationStatus, VideoRequestParams } from "@/lib/types";
 import type { ProviderCredentials } from "@/lib/services/provider-credentials";
+import type {
+  VideoGenerationCreateInput,
+  VideoGenerationPollInput,
+  VideoGenerationResult,
+} from "@/lib/services/video-generation-types";
 
 // ---------------------------------------------------------------------------
 // AIML Video API — typed service layer
@@ -52,14 +57,7 @@ interface AimlErrorBody {
 // Normalized result type — what callers receive
 // ---------------------------------------------------------------------------
 
-export interface AimlVideoResult {
-  id: string;
-  status: VideoGenerationStatus;
-  videoUrl: string | null;
-  error: string | null;
-  /** Pass-through of any extra metadata from the raw response. */
-  meta: Record<string, unknown>;
-}
+export type AimlVideoResult = VideoGenerationResult;
 
 // ---------------------------------------------------------------------------
 // Error class for non-2xx AIML responses
@@ -167,8 +165,8 @@ async function parseErrorBody(res: Response): Promise<{ message: string | null; 
  * @returns Normalized result with `id` (the generation id to poll) and initial status.
  * @throws {AimlApiError} on non-2xx responses.
  */
-export async function createVideoGeneration(
-  payload: { model: string; params: VideoRequestParams; credentials?: ProviderCredentials },
+export async function createAimlVideoGeneration(
+  payload: Pick<VideoGenerationCreateInput, "model" | "params" | "credentials">,
 ): Promise<AimlVideoResult> {
   const body: Record<string, unknown> = {
     model: payload.model,
@@ -221,14 +219,19 @@ export async function createVideoGeneration(
  * @returns Normalized result with current status, video URL if completed, error if failed.
  * @throws {AimlApiError} on non-2xx responses.
  */
-export async function getVideoGeneration(
-  generationId: string,
-  apiKey?: string,
+export async function getAimlVideoGeneration(
+  input: Pick<VideoGenerationPollInput, "generationId" | "credentials">,
 ): Promise<AimlVideoResult> {
-  const params = new URLSearchParams({ generation_id: generationId });
+  const params = new URLSearchParams({ generation_id: input.generationId });
   const url = `${VIDEO_PROXY}?${params.toString()}`;
 
   const headers: Record<string, string> = {};
+  const apiKey =
+    input.credentials &&
+    "apiKey" in input.credentials &&
+    typeof input.credentials.apiKey === "string"
+      ? input.credentials.apiKey.trim()
+      : "";
   if (apiKey) headers["x-api-key"] = apiKey;
 
   const res = await fetch(url, {
@@ -250,4 +253,15 @@ export async function getVideoGeneration(
     error: extractError(data),
     meta: extractMeta(data as unknown as Record<string, unknown>),
   };
+}
+
+export const createVideoGeneration = createAimlVideoGeneration;
+export async function getVideoGeneration(
+  generationId: string,
+  apiKey?: string,
+): Promise<AimlVideoResult> {
+  return getAimlVideoGeneration({
+    generationId,
+    credentials: apiKey ? { apiKey } : undefined,
+  });
 }

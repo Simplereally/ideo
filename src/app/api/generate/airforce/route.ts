@@ -24,11 +24,6 @@ const UPSTREAM = "https://api.airforce/v1/images/generations";
 
 const airforceModels = MODELS.filter((m) => m.provider === "airforce");
 
-/** Models that produce video instead of images. */
-const VIDEO_MODELS = new Set(
-  airforceModels.filter((m) => m.kind === "video").map((m) => m.value),
-);
-
 /** Models that accept a `seed` parameter. */
 const SEED_MODELS = new Set(
   airforceModels.filter((m) => m.capabilities.seed).map((m) => m.value),
@@ -61,13 +56,12 @@ function mapSize(ar: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Batch support — only models known to honour the OpenAI `n` parameter.
-// Models not listed here always generate a single image per request.
+// Batch support — only models where this app intentionally enables multi-image
+// requests. Airforce does not publish a clean public spec for every model, so
+// models not listed here stay on a single-image request.
 // ---------------------------------------------------------------------------
 
 const BATCH_MODELS: Partial<Record<string, number>> = {
-  // Verified by direct API testing: Airforce supports up to n=10 for grok-imagine
-  // n >= 11 returns HTTP 200 with empty data array (silent failure)
   "grok-imagine": 10,
 };
 
@@ -131,10 +125,20 @@ export async function POST(request: Request) {
     );
   }
 
+  const modelEntry = airforceModels.find((model) => model.value === apiModelId);
+  if (!modelEntry || modelEntry.kind !== "image") {
+    return NextResponse.json(
+      { error: `Model ${apiModelId} must be generated through the video pipeline.` },
+      { status: 400 },
+    );
+  }
+
   // --- Build upstream request body ---
   const airforceBody: Record<string, unknown> = {
     model: apiModelId,
     prompt: body.prompt,
+    n: 1,
+    response_format: "url",
     size: mapSize(body.aspectRatio),
   };
 
@@ -150,8 +154,6 @@ export async function POST(request: Request) {
   if (NEGATIVE_PROMPT_MODELS.has(apiModelId) && body.negativePrompt) {
     airforceBody.negativePrompt = body.negativePrompt;
   }
-
-  const isVideo = VIDEO_MODELS.has(apiModelId);
 
   try {
     console.log("[api/generate/airforce] upstream request body:", JSON.stringify(airforceBody));
@@ -246,10 +248,8 @@ export async function POST(request: Request) {
           return { imageUrl: item.url };
         }
         if (item.b64_json) {
-          const contentType = isVideo ? "video/mp4" : "image/png";
-          const ext = isVideo ? "mp4" : "png";
           return {
-            imageUrl: await uploadBase64ToR2(item.b64_json, contentType, ext),
+            imageUrl: await uploadBase64ToR2(item.b64_json, "image/png", "png"),
           };
         }
         return null;

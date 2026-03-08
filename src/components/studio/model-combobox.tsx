@@ -14,7 +14,6 @@ import {
 import { useStudio } from "@/lib/store";
 import {
   MODELS,
-  getImageModels,
   PROVIDER_SHORT_LABELS,
   PROVIDER_LABELS,
 } from "@/lib/types";
@@ -41,16 +40,16 @@ export function ModelCombobox({ className }: ModelComboboxProps) {
   const [inputValue, setInputValue] = useState("");
   const anchorRef = useRef<HTMLButtonElement>(null);
 
-  // Get image models grouped by provider
-  const imageModels = useMemo(() => getImageModels(), []);
+  // Surface the full configured model catalog, including video models.
+  const allModels = useMemo(() => MODELS, []);
   const availableProviderSet = useMemo(
     () => new Set<Provider>(configuredProviders),
     [configuredProviders],
   );
   const availableModels = useMemo(
     () =>
-      imageModels.filter((model) => availableProviderSet.has(model.provider)),
-    [availableProviderSet, imageModels],
+      allModels.filter((model) => availableProviderSet.has(model.provider)),
+    [allModels, availableProviderSet],
   );
   const hasConfiguredModels = availableModels.length > 0;
 

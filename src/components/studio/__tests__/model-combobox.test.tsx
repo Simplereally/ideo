@@ -158,6 +158,31 @@ describe("ModelCombobox", () => {
     expect(within(listbox).queryByText("Fal AI")).not.toBeInTheDocument();
   });
 
+  it("shows video models for configured providers, including Airforce Wan 2.6 and AIML Wan 2.6 T2V", async () => {
+    const user = userEvent.setup();
+    useSettingsStore.setState({
+      airforceApiKey: "sk-airforce-local",
+      aimlApiKey: "aiml-local",
+    });
+
+    render(<ModelCombobox />);
+
+    await user.click(screen.getByRole("button"));
+    const listbox = screen.getByRole("listbox");
+
+    expect(within(listbox).getByText("Airforce API")).toBeInTheDocument();
+    expect(within(listbox).getByText("Wan 2.6")).toBeInTheDocument();
+    expect(
+      within(listbox).getByText("Alibaba's video model exposed through Airforce"),
+    ).toBeInTheDocument();
+
+    expect(within(listbox).getByText("AI/ML API")).toBeInTheDocument();
+    expect(within(listbox).getByText("Wan 2.6 T2V")).toBeInTheDocument();
+    expect(
+      within(listbox).getByText("Latest Alibaba text-to-video model"),
+    ).toBeInTheDocument();
+  });
+
   it("waits for provider-status loading before applying a fallback selection", async () => {
     loadingRef.current = true;
     useSettingsStore.setState({ falApiKey: "fal_local" });

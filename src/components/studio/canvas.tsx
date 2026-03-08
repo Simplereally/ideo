@@ -344,19 +344,19 @@ export function StudioCanvas() {
         )}
 
         {/* ---- Selected Video Job: processing ---- */}
-        {showVideo &&
+        {selectedVideoJob &&
           (selectedVideoJob.status === "queued" ||
             selectedVideoJob.status === "generating") && (
             <VideoProcessingState job={selectedVideoJob} />
           )}
 
         {/* ---- Selected Video Job: cancelled ---- */}
-        {showVideo && selectedVideoJob.status === "cancelled" && (
+        {selectedVideoJob && selectedVideoJob.status === "cancelled" && (
           <VideoCancelledState onDismiss={handleVideoDismiss} />
         )}
 
         {/* ---- Selected Video Job: error ---- */}
-        {showVideo && selectedVideoJob.status === "error" && (
+        {selectedVideoJob && selectedVideoJob.status === "error" && (
           <VideoErrorState
             job={selectedVideoJob}
             onDismiss={handleVideoDismiss}
@@ -364,7 +364,7 @@ export function StudioCanvas() {
         )}
 
         {/* ---- Selected Video Job: completed — Video player ---- */}
-        {showVideo &&
+        {selectedVideoJob &&
           selectedVideoJob.status === "completed" &&
           selectedVideoJob.resultUrl && (
             <VideoPlayer

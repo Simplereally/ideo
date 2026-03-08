@@ -16,11 +16,12 @@ import { cn } from "@/lib/utils";
 import { getMaxPromptLength, isVideoModel } from "@/lib/types";
 import { useGenerationActions } from "./generation-actions";
 import { PendingImageJobsStrip } from "./pending-image-jobs-strip";
+import { PendingVideoJobsStrip } from "./pending-video-jobs-strip";
 import { ModelCombobox } from "./model-combobox";
 import { AspectRatioCombobox } from "./aspect-ratio-combobox";
 import { BatchSizePopover } from "./batch-size-popover";
 
-const COLLAPSED_TEXTAREA_HEIGHT = 42;
+const COLLAPSED_TEXTAREA_HEIGHT = 63;
 const MAX_TEXTAREA_HEIGHT = 240;
 
 export function PromptComposer() {
@@ -105,6 +106,7 @@ export function PromptComposer() {
         transition={{ type: "spring", stiffness: 190, damping: 24, mass: 0.9 }}
         className="flex w-full max-w-3xl flex-col gap-3"
       >
+        <PendingVideoJobsStrip />
         <PendingImageJobsStrip />
 
         <motion.div
@@ -116,7 +118,7 @@ export function PromptComposer() {
             "minimal-focus",
           )}
         >
-          <motion.div layout className="px-3 sm:px-4 pt-0 pb-1">
+          <motion.div layout className="px-3 sm:px-4 pt-0.5 pb-1">
             <textarea
               ref={textareaRef}
               value={state.prompt}

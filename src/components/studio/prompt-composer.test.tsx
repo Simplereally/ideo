@@ -111,7 +111,7 @@ vi.mock("@/store/image-jobs", () => ({
 }));
 
 // Mock services
-vi.mock("@/lib/services/aiml-video", () => ({
+vi.mock("@/lib/services/video-generation", () => ({
   createVideoGeneration: vi.fn(),
   getVideoGeneration: vi.fn(),
 }));
@@ -151,6 +151,10 @@ vi.mock("./aspect-ratio-combobox", () => ({
 
 vi.mock("./batch-size-popover", () => ({
   BatchSizePopover: () => <div data-testid="batch-size-popover" />,
+}));
+
+vi.mock("./pending-video-jobs-strip", () => ({
+  PendingVideoJobsStrip: () => <div data-testid="pending-video-jobs-strip" />,
 }));
 
 // ---------------------------------------------------------------------------

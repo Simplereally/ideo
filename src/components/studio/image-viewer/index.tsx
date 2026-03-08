@@ -18,15 +18,6 @@ import { MODELS } from "@/lib/types";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { INFO_PANEL_WIDTH } from "@/lib/constants";
-
-/** Static max dimension styles derived from INFO_PANEL_WIDTH.
- *  Tailwind cannot detect dynamic template-literal class names at build time,
- *  so we use inline styles for these viewport-relative constraints. */
-const mediaMaxStyles: CSSProperties = {
-  maxHeight: "calc(100vh - 12px)",
-  maxWidth: `calc(100vw - ${INFO_PANEL_WIDTH}px - 12px)`,
-};
-
 const VALID_IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp", "gif"]);
 
 /** Extract a valid image file extension from a URL, or return a safe fallback. */
@@ -43,6 +34,14 @@ function getImageExtension(url: string): string {
   }
   return ".img";
 }
+
+/** Static max dimension styles derived from INFO_PANEL_WIDTH.
+ *  Tailwind cannot detect dynamic template-literal class names at build time,
+ *  so we use inline styles for these viewport-relative constraints. */
+const mediaMaxStyles: CSSProperties = {
+  maxHeight: "calc(100vh - 12px)",
+  maxWidth: `calc(100vw - ${INFO_PANEL_WIDTH}px - 12px)`,
+};
 
 export function ImageViewer() {
   const { state, closeImageViewer, openImageViewer, setPrompt } = useStudio();
