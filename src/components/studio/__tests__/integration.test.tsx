@@ -26,6 +26,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   MODELS,
   PROVIDER_LABELS,
+  getProviders,
   getModelsForProvider,
   getDefaultModelForProvider,
   getModelConfig,
@@ -212,8 +213,9 @@ describe("Data layer invariants", () => {
   });
 
   describe("provider labels", () => {
-    it("every provider has a display label", () => {
-      const providers: Provider[] = ["google", "vertex", "fal", "aiml"];
+    it("every registered provider has a non-empty display label", () => {
+      const providers = getProviders();
+      expect(providers.length).toBeGreaterThan(0);
       for (const p of providers) {
         expect(PROVIDER_LABELS[p]).toBeTruthy();
         expect(typeof PROVIDER_LABELS[p]).toBe("string");

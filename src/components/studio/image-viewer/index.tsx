@@ -16,6 +16,24 @@ import { useVideoJobsStore } from "@/store/video-jobs";
 import { MODELS } from "@/lib/types";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { INFO_PANEL_WIDTH } from "@/lib/constants";
+
+const VALID_IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp", "gif"]);
+
+/** Extract a valid image file extension from a URL, or return a safe fallback. */
+function getImageExtension(url: string): string {
+  try {
+    const pathname = new URL(decodeURIComponent(url)).pathname;
+    const dotIndex = pathname.lastIndexOf(".");
+    if (dotIndex !== -1) {
+      const ext = pathname.slice(dotIndex + 1).toLowerCase();
+      if (VALID_IMAGE_EXTENSIONS.has(ext)) return `.${ext}`;
+    }
+  } catch {
+    // malformed URL — fall through to default
+  }
+  return ".img";
+}
 
 export function ImageViewer() {
   const { state, closeImageViewer, openImageViewer, setPrompt } = useStudio();
@@ -149,9 +167,10 @@ export function ImageViewer() {
   // Handlers
   const handleImageDownload = useCallback(() => {
     if (!image) return;
+    const ext = getImageExtension(image.imageUrl);
     const link = document.createElement("a");
     link.href = image.imageUrl;
-    link.download = `ideo-${image.id}.png`;
+    link.download = `ideo-${image.id}${ext}`;
     link.target = "_blank";
     link.rel = "noopener noreferrer";
     document.body.appendChild(link);
@@ -261,7 +280,7 @@ export function ImageViewer() {
                 muted
                 loop
                 playsInline
-                className="max-h-[calc(100vh-12px)] max-w-[calc(100vw-340px-12px)] object-contain"
+                className={`max-h-[calc(100vh-12px)] max-w-[calc(100vw-${INFO_PANEL_WIDTH}px-12px)] object-contain`}
               />
             </div>
           )}
@@ -273,7 +292,7 @@ export function ImageViewer() {
               className={cn(
                 "relative rounded-2xl border border-border/50 shadow-2xl shadow-black/20",
                 zoomed
-                  ? "max-h-[calc(100vh-12px)] max-w-[calc(100vw-340px-12px)] overflow-auto"
+                  ? `max-h-[calc(100vh-12px)] max-w-[calc(100vw-${INFO_PANEL_WIDTH}px-12px)] overflow-auto`
                   : "overflow-hidden"
               )}
               onClick={(e) => e.stopPropagation()}
@@ -291,7 +310,7 @@ export function ImageViewer() {
                   zoomed
                     ? "cursor-zoom-out"
                     : cn(
-                        "max-h-[calc(100vh-12px)] max-w-[calc(100vw-340px-12px)] object-contain",
+                        `max-h-[calc(100vh-12px)] max-w-[calc(100vw-${INFO_PANEL_WIDTH}px-12px)] object-contain`,
                         isZoomable && "cursor-zoom-in"
                       )
                 )}

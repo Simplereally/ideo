@@ -5,6 +5,7 @@ import { generationLimiter, getClientIp, rateLimitResponse } from "@/lib/server/
 import { resolveApiKey } from "@/lib/server/resolve-keys";
 import { extractApiKey } from "@/lib/server/extract-credentials";
 import type { ImageGenerationRequest, ImageGenerationResponse } from "@/lib/types/generation";
+import { validateImageGenerationResponse } from "@/lib/types/generation";
 
 function resolveImageCount(value: number | undefined): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return 1;
@@ -107,9 +108,10 @@ export async function POST(request: Request) {
     }
 
     const result = await fal.subscribe(apiModelId, { input: falInput });
+    const data = result.data as { images?: { url?: string }[] } | undefined;
 
     // Fal returns URLs directly — no upload needed.
-    const images = ((result as { images?: { url?: string }[] }).images ?? [])
+    const images = (data?.images ?? [])
       .map((image) => image.url)
       .filter((imageUrl): imageUrl is string => Boolean(imageUrl))
       .map((imageUrl) => ({ imageUrl }));
@@ -125,6 +127,7 @@ export async function POST(request: Request) {
       imageUrl: images[0].imageUrl,
       images,
     };
+    validateImageGenerationResponse(resp, "fal");
     return NextResponse.json(resp);
   } catch (err: unknown) {
     const message =

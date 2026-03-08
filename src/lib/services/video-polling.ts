@@ -112,6 +112,11 @@ export function pollVideoGeneration(
 
     try {
       const result = await fetcher();
+
+      // Guard: if cancel/timeout fired while the fetch was in-flight, discard
+      // the result to prevent stale state updates.
+      if (cancelled) return;
+
       lastResult = result;
       const elapsed = Date.now() - startTime;
 

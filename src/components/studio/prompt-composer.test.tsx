@@ -155,15 +155,6 @@ vi.mock("./batch-size-popover", () => ({
   BatchSizePopover: () => <div data-testid="batch-size-popover" />,
 }));
 
-vi.mock("./generation-actions", () => ({
-  useGenerationActions: () => ({
-    generateFromCurrentState: vi.fn(),
-    retryVideoJob: vi.fn(),
-    retryImageJob: vi.fn(),
-    isSubmittingVideo: false,
-  }),
-}));
-
 // ---------------------------------------------------------------------------
 // Minimal test wrapper that provides the useStudio context
 // ---------------------------------------------------------------------------
@@ -322,14 +313,6 @@ function simulateKeyDown(
 // ---------------------------------------------------------------------------
 
 describe("PromptComposer character limit", () => {
-  it("renders the batch size control alongside the composer selectors", () => {
-    render(<PromptComposer />);
-
-    expect(screen.getByTestId("model-combobox")).toBeInTheDocument();
-    expect(screen.getByTestId("aspect-ratio-combobox")).toBeInTheDocument();
-    expect(screen.getByTestId("batch-size-popover")).toBeInTheDocument();
-  });
-
   beforeEach(() => {
     mockPrompt = "";
     mockModel = "google:imagen-4-0-generate-001";
@@ -338,6 +321,14 @@ describe("PromptComposer character limit", () => {
     });
     mockOpenApiKeyDialog.mockClear();
     mockToggleControls.mockClear();
+  });
+
+  it("renders the batch size control alongside the composer selectors", () => {
+    render(<PromptComposer />);
+
+    expect(screen.getByTestId("model-combobox")).toBeInTheDocument();
+    expect(screen.getByTestId("aspect-ratio-combobox")).toBeInTheDocument();
+    expect(screen.getByTestId("batch-size-popover")).toBeInTheDocument();
   });
 
   // ---- 1. Basic typing under limit ----

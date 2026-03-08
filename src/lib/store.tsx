@@ -238,14 +238,17 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
         ...applyModelDefaults(selectedModel),
       };
     }
-    case "SET_NUMBER_OF_IMAGES":
+    case "SET_NUMBER_OF_IMAGES": {
+      // Video models always produce a single output — enforce the invariant
+      // regardless of what the caller requests.
+      const currentModel = MODELS.find((m) => m.id === state.model);
+      const effectiveMax =
+        currentModel?.kind === "video" ? 1 : getMaxImagesForModel(state.model);
       return {
         ...state,
-        numberOfImages: Math.min(
-          Math.max(1, action.payload),
-          getMaxImagesForModel(state.model),
-        ),
+        numberOfImages: Math.min(Math.max(1, action.payload), effectiveMax),
       };
+    }
     case "SET_GUIDANCE_SCALE":
       return { ...state, guidanceScale: action.payload };
     // Video-specific reducers

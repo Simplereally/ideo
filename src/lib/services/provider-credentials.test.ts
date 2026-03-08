@@ -25,6 +25,7 @@ const EMPTY_SETTINGS: Pick<
   | "googleApiKey"
   | "falApiKey"
   | "aimlApiKey"
+  | "airforceApiKey"
   | "vertexAccessToken"
   | "vertexProjectId"
   | "vertexLocation"
@@ -32,6 +33,7 @@ const EMPTY_SETTINGS: Pick<
   googleApiKey: "",
   falApiKey: "",
   aimlApiKey: "",
+  airforceApiKey: "",
   vertexAccessToken: "",
   vertexProjectId: "",
   vertexLocation: "us-central1",

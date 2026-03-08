@@ -63,8 +63,15 @@ function VertexProviderDetailSlot() {
   );
 }
 
-export const PROVIDER_CONFIGS: ProviderConfig[] = [
-  {
+/**
+ * Authoritative provider configuration map.
+ *
+ * Typed as `Record<Provider, ProviderConfig>` — the compiler will reject this
+ * file whenever a new Provider variant is added to the union but is missing
+ * from this object. No blanket `as` casts are needed anywhere downstream.
+ */
+export const PROVIDER_CONFIG_BY_ID: Record<Provider, ProviderConfig> = {
+  google: {
     id: "google",
     label: "Google AI",
     tagline: "Imagen 3 via AI Studio",
@@ -87,7 +94,7 @@ export const PROVIDER_CONFIGS: ProviderConfig[] = [
       },
     ],
   },
-  {
+  vertex: {
     id: "vertex",
     label: "Vertex AI",
     tagline: "Imagen 3 & 4 via GCP",
@@ -126,13 +133,14 @@ export const PROVIDER_CONFIGS: ProviderConfig[] = [
         setterKey: "setVertexAccessToken",
         label: "Access Token",
         placeholder: "ya29.…",
-        description: "Short-lived OAuth access token used to authenticate requests.",
+        description:
+          "Short-lived OAuth access token used to authenticate requests.",
         secret: true,
         required: true,
       },
     ],
   },
-  {
+  fal: {
     id: "fal",
     label: "Fal AI",
     tagline: "FLUX models",
@@ -154,7 +162,7 @@ export const PROVIDER_CONFIGS: ProviderConfig[] = [
       },
     ],
   },
-  {
+  aiml: {
     id: "aiml",
     label: "AI/ML",
     tagline: "Multi-provider image API",
@@ -176,7 +184,7 @@ export const PROVIDER_CONFIGS: ProviderConfig[] = [
       },
     ],
   },
-  {
+  airforce: {
     id: "airforce",
     label: "Airforce API",
     tagline: "Multi-model image & video generation",
@@ -199,16 +207,25 @@ export const PROVIDER_CONFIGS: ProviderConfig[] = [
       },
     ],
   },
-];
+};
 
-export const PROVIDER_FIELDS = Object.fromEntries(
-  PROVIDER_CONFIGS.map((provider) => [provider.id, provider.fields]),
-) as Record<Provider, ProviderFieldConfig[]>;
+/** Ordered array derived from the authoritative record. */
+export const PROVIDER_CONFIGS: ProviderConfig[] =
+  Object.values(PROVIDER_CONFIG_BY_ID);
 
-export const PROVIDER_CONFIG_BY_ID = Object.fromEntries(
-  PROVIDER_CONFIGS.map((provider) => [provider.id, provider]),
-) as Record<Provider, ProviderConfig>;
+/** Per-provider field configs derived from the authoritative record. */
+export const PROVIDER_FIELDS: Record<Provider, ProviderFieldConfig[]> =
+  Object.fromEntries(
+    Object.entries(PROVIDER_CONFIG_BY_ID).map(([id, cfg]) => [id, cfg.fields]),
+  ) as { [K in Provider]: ProviderFieldConfig[] };
 
 export function getProviderConfig(providerId: Provider): ProviderConfig {
-  return PROVIDER_CONFIG_BY_ID[providerId];
+  const config: ProviderConfig | undefined = PROVIDER_CONFIG_BY_ID[providerId];
+  if (!config) {
+    throw new Error(
+      `[provider-config] No configuration found for provider "${String(providerId)}". ` +
+        `Ensure PROVIDER_CONFIG_BY_ID includes an entry with id "${String(providerId)}".`,
+    );
+  }
+  return config;
 }

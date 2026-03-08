@@ -385,24 +385,34 @@ function ImageJobItem({
         </div>
       )}
 
-      <div className="flex min-w-0 flex-1 flex-col justify-center gap-1">
-        <p className="line-clamp-2 text-xs font-medium leading-relaxed text-foreground">
-          {job.prompt}
-        </p>
-        <div className="flex items-center gap-1.5">
-          <span className={cn("text-[10px] font-semibold", cfg.color)}>
-            {cfg.label}
-          </span>
-          <span className="text-[10px] text-muted-foreground/40">&middot;</span>
-          <span className="text-[10px] font-medium text-muted-foreground">
-            {getModelLabel(job.model)}
-          </span>
-          <span className="text-[10px] text-muted-foreground/40">&middot;</span>
-          <span className="text-[10px] font-medium text-muted-foreground">
-            {timeAgo(job.createdAt)}
-          </span>
+      <button
+        type="button"
+        tabIndex={canRetry ? -1 : 0}
+        onClick={() => {
+          void copyPromptToClipboard(job.prompt);
+        }}
+        aria-label={`Image job: ${job.prompt}`}
+        className="flex min-w-0 flex-1 cursor-default items-start gap-3 text-left focus:outline-none"
+      >
+        <div className="flex min-w-0 flex-1 flex-col justify-center gap-1">
+          <p className="line-clamp-2 text-xs font-medium leading-relaxed text-foreground">
+            {job.prompt}
+          </p>
+          <div className="flex items-center gap-1.5">
+            <span className={cn("text-[10px] font-semibold", cfg.color)}>
+              {cfg.label}
+            </span>
+            <span className="text-[10px] text-muted-foreground/40">&middot;</span>
+            <span className="text-[10px] font-medium text-muted-foreground">
+              {getModelLabel(job.model)}
+            </span>
+            <span className="text-[10px] text-muted-foreground/40">&middot;</span>
+            <span className="text-[10px] font-medium text-muted-foreground">
+              {timeAgo(job.createdAt)}
+            </span>
+          </div>
         </div>
-      </div>
+      </button>
 
       <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 transition-all group-hover:opacity-100 group-focus-within:opacity-100">
         <ActionIconButton

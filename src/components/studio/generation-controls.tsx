@@ -728,6 +728,7 @@ function PanelHeader({ onClose }: { onClose: () => void }) {
       <button
         type="button"
         onClick={onClose}
+        aria-label="Close settings"
         className="flex size-7 items-center justify-center rounded-full bg-muted text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground"
       >
         <X className="size-3.5" strokeWidth={2.5} />
@@ -921,6 +922,8 @@ export function GenerationControls({ overlay }: { overlay?: boolean } = {}) {
       animate={{ width: state.isControlsOpen ? SIDEBAR_WIDTH : 0 }}
       transition={PANEL_TRANSITION.width}
       className="flex flex-col shrink-0 h-full overflow-hidden"
+      aria-hidden={!state.isControlsOpen}
+      {...(!state.isControlsOpen && { inert: true })}
     >
       <motion.div
         initial={false}

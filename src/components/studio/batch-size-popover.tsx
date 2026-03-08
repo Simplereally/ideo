@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Check, Layers3 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useStudio } from "@/lib/store";
@@ -33,13 +33,22 @@ export function BatchSizePopover({ className }: BatchSizePopoverProps) {
     [setNumberOfImages],
   );
 
-  if (modelConfig?.kind === "video" || batchSizeOptions.length <= 1) {
+  const isHidden = modelConfig?.kind === "video" || batchSizeOptions.length <= 1;
+  const isValid = !isHidden && batchSizeOptions.includes(state.numberOfImages);
+  const selectedBatchSize = isValid ? state.numberOfImages : batchSizeOptions[0];
+
+  // Sync store when current numberOfImages is not in the valid options.
+  // Placed before the early return to satisfy Rules of Hooks (hook count
+  // must be identical across renders).
+  useEffect(() => {
+    if (!isHidden && !isValid) {
+      setNumberOfImages(batchSizeOptions[0]);
+    }
+  }, [isHidden, isValid, batchSizeOptions, setNumberOfImages]);
+
+  if (isHidden) {
     return null;
   }
-
-  const selectedBatchSize = batchSizeOptions.includes(state.numberOfImages)
-    ? state.numberOfImages
-    : batchSizeOptions[0];
 
   return (
     <Popover open={open} onOpenChange={setOpen}>

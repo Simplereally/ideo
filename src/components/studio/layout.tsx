@@ -138,6 +138,8 @@ export function StudioLayout() {
               "lg:hidden fixed inset-y-0 left-0 z-50 w-[min(320px,85vw)] transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] p-2",
               state.isHistoryOpen ? "translate-x-0" : "-translate-x-full",
             )}
+            aria-hidden={!state.isHistoryOpen}
+            inert={!state.isHistoryOpen ? true : undefined}
           >
             <HistoryPanel overlay />
           </div>
@@ -148,6 +150,8 @@ export function StudioLayout() {
               "lg:hidden fixed inset-y-0 right-0 z-50 w-[min(340px,85vw)] transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] p-2",
               state.isControlsOpen ? "translate-x-0" : "translate-x-full",
             )}
+            aria-hidden={!state.isControlsOpen}
+            inert={!state.isControlsOpen ? true : undefined}
           >
             <GenerationControls overlay />
           </div>

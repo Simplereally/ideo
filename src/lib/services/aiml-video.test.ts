@@ -1,8 +1,9 @@
 /**
- * aiml-video.ts — getVideoGeneration BYOK query-param tests
+ * aiml-video.ts -- getVideoGeneration BYOK header-based auth tests
  *
- * Verifies that when an apiKey is supplied, it is appended to the URL
- * as a query parameter so the server proxy can authenticate BYOK users.
+ * Verifies that when an apiKey is supplied, it is sent via the `x-api-key`
+ * header (not as a query parameter) so the server proxy can authenticate
+ * BYOK users without leaking credentials in URLs.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -36,7 +37,7 @@ function okPollBody(id: string) {
 // ---------------------------------------------------------------------------
 
 describe("getVideoGeneration", () => {
-  it("does NOT include apiKey param when no key is provided", async () => {
+  it("does NOT include apiKey param or header when no key is provided", async () => {
     fetchSpy.mockResolvedValueOnce(
       new Response(JSON.stringify(okPollBody("gen-1")), { status: 200 }),
     );
@@ -44,37 +45,47 @@ describe("getVideoGeneration", () => {
     await getVideoGeneration("gen-1");
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
-    const [url] = fetchSpy.mock.calls[0];
+    const [url, init] = fetchSpy.mock.calls[0];
     const parsed = new URL(url as string, "http://localhost");
     expect(parsed.searchParams.has("apiKey")).toBe(false);
     expect(parsed.searchParams.get("generation_id")).toBe("gen-1");
+
+    // Should not have x-api-key header
+    const headers = init?.headers as Record<string, string> | undefined;
+    expect(headers?.["x-api-key"]).toBeUndefined();
   });
 
-  it("does NOT include apiKey param when key is undefined", async () => {
+  it("does NOT include apiKey param or header when key is undefined", async () => {
     fetchSpy.mockResolvedValueOnce(
       new Response(JSON.stringify(okPollBody("gen-2")), { status: 200 }),
     );
 
     await getVideoGeneration("gen-2", undefined);
 
-    const [url] = fetchSpy.mock.calls[0];
+    const [url, init] = fetchSpy.mock.calls[0];
     const parsed = new URL(url as string, "http://localhost");
     expect(parsed.searchParams.has("apiKey")).toBe(false);
+
+    const headers = init?.headers as Record<string, string> | undefined;
+    expect(headers?.["x-api-key"]).toBeUndefined();
   });
 
-  it("does NOT include apiKey param when key is empty string", async () => {
+  it("does NOT include apiKey param or header when key is empty string", async () => {
     fetchSpy.mockResolvedValueOnce(
       new Response(JSON.stringify(okPollBody("gen-3")), { status: 200 }),
     );
 
     await getVideoGeneration("gen-3", "");
 
-    const [url] = fetchSpy.mock.calls[0];
+    const [url, init] = fetchSpy.mock.calls[0];
     const parsed = new URL(url as string, "http://localhost");
     expect(parsed.searchParams.has("apiKey")).toBe(false);
+
+    const headers = init?.headers as Record<string, string> | undefined;
+    expect(headers?.["x-api-key"]).toBeUndefined();
   });
 
-  it("includes apiKey query param when a key is provided", async () => {
+  it("sends apiKey via x-api-key header (not query param) when a key is provided", async () => {
     fetchSpy.mockResolvedValueOnce(
       new Response(JSON.stringify(okPollBody("gen-4")), { status: 200 }),
     );
@@ -82,13 +93,19 @@ describe("getVideoGeneration", () => {
     await getVideoGeneration("gen-4", "sk-test-key-123");
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
-    const [url] = fetchSpy.mock.calls[0];
+    const [url, init] = fetchSpy.mock.calls[0];
     const parsed = new URL(url as string, "http://localhost");
-    expect(parsed.searchParams.get("apiKey")).toBe("sk-test-key-123");
+
+    // API key must NOT be in URL
+    expect(parsed.searchParams.has("apiKey")).toBe(false);
     expect(parsed.searchParams.get("generation_id")).toBe("gen-4");
+
+    // API key must be in header
+    const headers = init?.headers as Record<string, string>;
+    expect(headers["x-api-key"]).toBe("sk-test-key-123");
   });
 
-  it("properly encodes special characters in apiKey", async () => {
+  it("properly handles special characters in apiKey via header", async () => {
     fetchSpy.mockResolvedValueOnce(
       new Response(JSON.stringify(okPollBody("gen-5")), { status: 200 }),
     );
@@ -96,9 +113,9 @@ describe("getVideoGeneration", () => {
     const weirdKey = "key+with spaces&special=chars";
     await getVideoGeneration("gen-5", weirdKey);
 
-    const [url] = fetchSpy.mock.calls[0];
-    const parsed = new URL(url as string, "http://localhost");
-    expect(parsed.searchParams.get("apiKey")).toBe(weirdKey);
+    const [, init] = fetchSpy.mock.calls[0];
+    const headers = init?.headers as Record<string, string>;
+    expect(headers["x-api-key"]).toBe(weirdKey);
   });
 
   it("normalizes the response into AimlVideoResult", async () => {

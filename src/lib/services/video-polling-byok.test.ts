@@ -3,7 +3,8 @@
  *
  * Verifies that the fetcher closure pattern (as used in prompt-composer.tsx)
  * correctly reads the BYOK API key from the settings store at each invocation
- * and forwards it to `getVideoGeneration`.
+ * and forwards it to `getVideoGeneration` via the `x-api-key` header (not
+ * as a query parameter, to avoid leaking credentials in URLs).
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -82,12 +83,19 @@ function respondWith(body: object, status = 200) {
   });
 }
 
+/** Extract the x-api-key header from a fetch call's init. */
+function getApiKeyHeader(callIndex: number): string | undefined {
+  const [, init] = fetchSpy.mock.calls[callIndex];
+  const headers = init?.headers as Record<string, string> | undefined;
+  return headers?.["x-api-key"];
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 describe("polling fetcher forwards BYOK apiKey from settings store", () => {
-  it("includes apiKey in fetch URL when store has a key", async () => {
+  it("includes apiKey in x-api-key header when store has a key", async () => {
     mockStoreState.aimlApiKey = "sk-byok-test";
     fetchSpy.mockResolvedValueOnce(
       respondWith({ id: "job-1", status: "generating" }),
@@ -99,8 +107,11 @@ describe("polling fetcher forwards BYOK apiKey from settings store", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     const [url] = fetchSpy.mock.calls[0];
     const parsed = new URL(url as string, "http://localhost");
-    expect(parsed.searchParams.get("apiKey")).toBe("sk-byok-test");
+    // API key must NOT be in query params
+    expect(parsed.searchParams.has("apiKey")).toBe(false);
     expect(parsed.searchParams.get("generation_id")).toBe("job-1");
+    // API key must be in header
+    expect(getApiKeyHeader(0)).toBe("sk-byok-test");
   });
 
   it("omits apiKey when store has no key configured", async () => {
@@ -116,6 +127,7 @@ describe("polling fetcher forwards BYOK apiKey from settings store", () => {
     const [url] = fetchSpy.mock.calls[0];
     const parsed = new URL(url as string, "http://localhost");
     expect(parsed.searchParams.has("apiKey")).toBe(false);
+    expect(getApiKeyHeader(0)).toBeUndefined();
   });
 
   it("omits apiKey when store key is whitespace-only", async () => {
@@ -130,6 +142,7 @@ describe("polling fetcher forwards BYOK apiKey from settings store", () => {
     const [url] = fetchSpy.mock.calls[0];
     const parsed = new URL(url as string, "http://localhost");
     expect(parsed.searchParams.has("apiKey")).toBe(false);
+    expect(getApiKeyHeader(0)).toBeUndefined();
   });
 
   it("reads key fresh on every call (picks up changes between ticks)", async () => {
@@ -142,8 +155,7 @@ describe("polling fetcher forwards BYOK apiKey from settings store", () => {
     );
     await fetcher();
 
-    const firstUrl = new URL(fetchSpy.mock.calls[0][0] as string, "http://localhost");
-    expect(firstUrl.searchParams.has("apiKey")).toBe(false);
+    expect(getApiKeyHeader(0)).toBeUndefined();
 
     // Simulate user entering a key between polls
     mockStoreState.aimlApiKey = "sk-new-key";
@@ -152,8 +164,7 @@ describe("polling fetcher forwards BYOK apiKey from settings store", () => {
     );
     await fetcher();
 
-    const secondUrl = new URL(fetchSpy.mock.calls[1][0] as string, "http://localhost");
-    expect(secondUrl.searchParams.get("apiKey")).toBe("sk-new-key");
+    expect(getApiKeyHeader(1)).toBe("sk-new-key");
   });
 
   it("handles key rotation (key changes between consecutive calls)", async () => {
@@ -173,9 +184,7 @@ describe("polling fetcher forwards BYOK apiKey from settings store", () => {
     );
     await fetcher();
 
-    const urlA = new URL(fetchSpy.mock.calls[0][0] as string, "http://localhost");
-    const urlB = new URL(fetchSpy.mock.calls[1][0] as string, "http://localhost");
-    expect(urlA.searchParams.get("apiKey")).toBe("key-A");
-    expect(urlB.searchParams.get("apiKey")).toBe("key-B");
+    expect(getApiKeyHeader(0)).toBe("key-A");
+    expect(getApiKeyHeader(1)).toBe("key-B");
   });
 });

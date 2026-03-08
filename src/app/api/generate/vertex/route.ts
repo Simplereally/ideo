@@ -8,6 +8,7 @@ import type {
   ImageGenerationRequest,
   ImageGenerationResponse,
 } from "@/lib/types/generation";
+import { validateImageGenerationResponse } from "@/lib/types/generation";
 
 function resolveImageCount(value: number | undefined): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return 1;
@@ -152,6 +153,7 @@ export async function POST(request: Request) {
       imageUrl: images[0].imageUrl,
       images,
     };
+    validateImageGenerationResponse(result, "vertex");
     return NextResponse.json(result);
   } catch (err: unknown) {
     const message =

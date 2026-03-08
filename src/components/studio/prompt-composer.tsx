@@ -13,7 +13,7 @@ import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { useStudio } from "@/lib/store";
 import { cn } from "@/lib/utils";
-import { getMaxPromptLength } from "@/lib/types";
+import { getMaxPromptLength, isVideoModel } from "@/lib/types";
 import { useGenerationActions } from "./generation-actions";
 import { PendingImageJobsStrip } from "./pending-image-jobs-strip";
 import { ModelCombobox } from "./model-combobox";
@@ -75,6 +75,19 @@ export function PromptComposer() {
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
+      const target = event.target;
+
+      // Skip if focus is inside an editable element — the textarea's own
+      // onKeyDown already handles Cmd/Ctrl+Enter there. Listening here too
+      // would enqueue the generation twice.
+      if (
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLInputElement ||
+        (target instanceof HTMLElement && target.isContentEditable)
+      ) {
+        return;
+      }
+
       if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
         event.preventDefault();
         if (canGenerate) handleGenerate();
@@ -193,10 +206,14 @@ export function PromptComposer() {
           >
             <div className="flex items-center gap-1.5 ml-2 min-w-0">
               <ModelCombobox />
-              <div className="w-px h-4 bg-border mx-1 shrink-0 hidden sm:block" />
-              <AspectRatioCombobox />
-              <div className="w-px h-4 bg-border mx-1 shrink-0 hidden sm:block" />
-              <BatchSizePopover />
+              {!isVideoModel(state.model) && (
+                <>
+                  <div className="w-px h-4 bg-border mx-1 shrink-0 hidden sm:block" />
+                  <AspectRatioCombobox />
+                  <div className="w-px h-4 bg-border mx-1 shrink-0 hidden sm:block" />
+                  <BatchSizePopover />
+                </>
+              )}
             </div>
 
             <div className="flex items-center gap-3 pr-1 shrink-0">

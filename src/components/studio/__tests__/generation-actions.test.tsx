@@ -389,6 +389,9 @@ describe("GenerationActionsProvider", () => {
       "https://example.com/image-1.png",
     );
     expect(mocks.completeGeneration).toHaveBeenCalledTimes(3);
+    // Calls arrive in reverse order (3→2→1) because generatedImages.toReversed()
+    // iterates last-to-first; completeGeneration prepends to history, so this
+    // ensures the final display order is 1→N.
     expect(
       mocks.completeGeneration.mock.calls.map(
         ([image]) => image.imageUrl,

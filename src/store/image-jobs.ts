@@ -101,6 +101,8 @@ export const useImageJobsStore = create<ImageJobsState>()(
           jobs: patchJob(s.jobs, id, {
             status: "generating",
             attempts: (s.jobs.find((j) => j.id === id)?.attempts ?? 0) + 1,
+            error: undefined,
+            resultUrl: undefined,
           }),
         })),
 

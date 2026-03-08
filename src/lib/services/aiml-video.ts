@@ -226,11 +226,14 @@ export async function getVideoGeneration(
   apiKey?: string,
 ): Promise<AimlVideoResult> {
   const params = new URLSearchParams({ generation_id: generationId });
-  if (apiKey) params.set("apiKey", apiKey);
   const url = `${VIDEO_PROXY}?${params.toString()}`;
+
+  const headers: Record<string, string> = {};
+  if (apiKey) headers["x-api-key"] = apiKey;
 
   const res = await fetch(url, {
     method: "GET",
+    headers,
   });
 
   if (!res.ok) {

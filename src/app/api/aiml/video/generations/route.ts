@@ -119,9 +119,10 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
 
-  // --- Resolve API key: query param > env ---
+  // --- Resolve API key: header > query param (legacy) > env ---
+  const headerKey = request.headers.get("x-api-key");
   const keyResult = resolveApiKey(
-    searchParams.get("apiKey"),
+    headerKey ?? searchParams.get("apiKey"),
     process.env.AIML_API_KEY,
     "AI/ML",
   );

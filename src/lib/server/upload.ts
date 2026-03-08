@@ -21,11 +21,22 @@ export async function uploadBufferToR2(
   // Copy into a clean ArrayBuffer so fetch accepts it without TS grief.
   const ab = new ArrayBuffer(bytes.byteLength);
   new Uint8Array(ab).set(bytes);
-  const res = await fetch(presignedUrl, {
-    method: "PUT",
-    body: ab,
-    headers: { "Content-Type": contentType },
-  });
+
+  // Abort after 30 seconds to avoid hanging on slow/unresponsive R2 endpoints.
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30_000);
+
+  let res: Response;
+  try {
+    res = await fetch(presignedUrl, {
+      method: "PUT",
+      body: ab,
+      headers: { "Content-Type": contentType },
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   if (!res.ok) {
     throw new Error(`R2 PUT failed: ${res.status} ${res.statusText}`);

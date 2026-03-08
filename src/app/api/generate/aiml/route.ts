@@ -5,10 +5,11 @@ import { generationLimiter, getClientIp, rateLimitResponse } from "@/lib/server/
 import { resolveApiKey } from "@/lib/server/resolve-keys";
 import { extractApiKey } from "@/lib/server/extract-credentials";
 import type { ImageGenerationRequest, ImageGenerationResponse } from "@/lib/types/generation";
+import { validateImageGenerationResponse } from "@/lib/types/generation";
 
-function resolveImageCount(value: number | undefined): number {
+function resolveImageCount(value: unknown, max: number): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return 1;
-  return Math.min(4, Math.max(1, Math.floor(value)));
+  return Math.min(max, Math.max(1, Math.floor(value)));
 }
 
 // ---------------------------------------------------------------------------
@@ -121,11 +122,7 @@ export async function POST(request: Request) {
   };
   const batchConfig = AIML_BATCH_FIELDS[apiModelId];
   if (batchConfig) {
-    const batchSize =
-      batchConfig.max === 4
-        ? resolveImageCount(body.numberOfImages)
-        : Math.min(batchConfig.max, Math.max(1, Math.floor(body.numberOfImages ?? 1)));
-    aimlBody[batchConfig.field] = batchSize;
+    aimlBody[batchConfig.field] = resolveImageCount(body.numberOfImages, batchConfig.max);
   }
 
   if (IMAGE_SIZE_MODELS.has(apiModelId)) {
@@ -208,6 +205,7 @@ export async function POST(request: Request) {
       imageUrl: resolvedImages[0].imageUrl,
       images: resolvedImages,
     };
+    validateImageGenerationResponse(result, "aiml");
     return NextResponse.json(result);
   } catch (err: unknown) {
     const message =

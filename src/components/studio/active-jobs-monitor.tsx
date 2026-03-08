@@ -36,14 +36,21 @@ function JobChip({
   const isQueued = job.status === "queued";
 
   return (
-    <motion.button
-      type="button"
+    <motion.div
       layout
       initial={{ opacity: 0, scale: 0.9, y: 8 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.9, y: 8 }}
       transition={{ type: "spring", damping: 25, stiffness: 300 }}
       onClick={onSelect}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
+      role="button"
+      tabIndex={0}
       className={cn(
         "group flex items-center gap-2.5 rounded-2xl px-3.5 py-2.5",
         "bg-card/95 backdrop-blur-md border border-border shadow-lg",
@@ -77,11 +84,12 @@ function JobChip({
           onCancel();
         }}
         tabIndex={-1}
+        aria-label="Cancel job"
         title="Cancel job"
       >
         <X className="size-3" strokeWidth={2.5} />
       </button>
-    </motion.button>
+    </motion.div>
   );
 }
 

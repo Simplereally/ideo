@@ -126,7 +126,7 @@ describe("doc-backed batch size limits", () => {
   });
 
   it("matches the reviewed Airforce model batch support matrix", () => {
-    expect(getMaxImagesForModel("airforce:grok-imagine")).toBe(4);
+    expect(getMaxImagesForModel("airforce:grok-imagine")).toBe(10);
     expect(getMaxImagesForModel("airforce:flux-2-pro")).toBe(1);
     expect(getMaxImagesForModel("airforce:wan-2.6")).toBe(1);
   });

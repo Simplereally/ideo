@@ -6,6 +6,7 @@ import {
   Download,
   Film,
   XCircle,
+  AlertCircle,
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -121,6 +122,44 @@ function VideoCancelledState({ onDismiss }: { onDismiss: () => void }) {
   );
 }
 
+function VideoErrorState({
+  job,
+  onDismiss,
+}: {
+  job: VideoJob;
+  onDismiss: () => void;
+}) {
+  return (
+    <motion.div
+      key="video-error"
+      initial={{ opacity: 0, scale: 0.96, filter: "blur(10px)" }}
+      animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+      exit={{ opacity: 0, scale: 0.96, filter: "blur(10px)" }}
+      className="flex flex-col items-center gap-4 bg-card/50 backdrop-blur-xl p-8 rounded-[2rem] border border-destructive/30 shadow-2xl shadow-black/5"
+    >
+      <AlertCircle className="size-10 text-destructive" strokeWidth={1.5} />
+      <div className="flex flex-col items-center gap-1.5">
+        <p className="max-w-sm text-center text-sm font-medium text-foreground">
+          Video generation failed
+        </p>
+        {job.error && (
+          <p className="max-w-xs text-center text-xs text-muted-foreground">
+            {job.error}
+          </p>
+        )}
+      </div>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={onDismiss}
+        className="rounded-full text-muted-foreground hover:text-foreground mt-2"
+      >
+        Dismiss
+      </Button>
+    </motion.div>
+  );
+}
+
 function VideoPlayer({
   job,
   onDownload,
@@ -165,29 +204,34 @@ function VideoPlayer({
           </div>
         </div>
 
-        {/* Hover overlay */}
-        <AnimatePresence>
-          {hover && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              className="absolute inset-x-0 top-0 flex items-start justify-end p-6 pointer-events-none"
-            >
-              <div className="pointer-events-auto flex items-center gap-3">
+        {/* Download action — always in the DOM for accessibility */}
+        <div
+          className={cn(
+            "absolute inset-x-0 top-0 flex items-start justify-end p-6 pointer-events-none",
+            "transition-opacity duration-200",
+            hover ? "opacity-100" : "opacity-0 focus-within:opacity-100",
+          )}
+        >
+          <div className="pointer-events-auto flex items-center gap-3">
+            <Tooltip>
+              <TooltipTrigger asChild>
                 <Button
                   variant="secondary"
                   size="icon"
                   className="size-10 rounded-full bg-card/90 text-foreground backdrop-blur-md hover:bg-card shadow-lg hover:scale-105 transition-all"
                   onClick={onDownload}
+                  aria-label="Download video"
+                  title="Download video"
                 >
-                  <Download className="size-4" />
+                  <Download className="size-4" aria-hidden="true" />
                 </Button>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" sideOffset={8} className="text-xs font-medium">
+                Download video
+              </TooltipContent>
+            </Tooltip>
+          </div>
+        </div>
       </div>
     </motion.div>
   );
@@ -201,6 +245,9 @@ export function StudioCanvas() {
   const { state, openImageViewer } = useStudio();
 
   const { status, selectedImage } = state;
+  const [showImageControls, setShowImageControls] = useState(false);
+  const imagePreviewRef = useRef<HTMLImageElement>(null);
+  const imageControlsRef = useRef<HTMLDivElement>(null);
 
   // Video job state
   const selectedJobId = useVideoJobsStore((s) => s.selectedJobId);
@@ -254,6 +301,26 @@ export function StudioCanvas() {
     openImageViewer(image);
   }
 
+  function handleImageMouseEnter() {
+    setShowImageControls(true);
+  }
+
+  function handleImageMouseLeave(e: React.MouseEvent<HTMLImageElement>) {
+    const nextTarget = e.relatedTarget as Node | null;
+    if (nextTarget && imageControlsRef.current?.contains(nextTarget)) return;
+    setShowImageControls(false);
+  }
+
+  function handleImageControlsMouseEnter() {
+    setShowImageControls(true);
+  }
+
+  function handleImageControlsMouseLeave(e: React.MouseEvent<HTMLDivElement>) {
+    const nextTarget = e.relatedTarget as Node | null;
+    if (nextTarget && imagePreviewRef.current?.contains(nextTarget)) return;
+    setShowImageControls(false);
+  }
+
   return (
     <div className="absolute inset-0 z-10 flex items-center justify-center overflow-hidden px-3 py-2 sm:px-4 sm:py-3">
       <AnimatePresence mode="sync">
@@ -286,6 +353,14 @@ export function StudioCanvas() {
         {/* ---- Selected Video Job: cancelled ---- */}
         {showVideo && selectedVideoJob.status === "cancelled" && (
           <VideoCancelledState onDismiss={handleVideoDismiss} />
+        )}
+
+        {/* ---- Selected Video Job: error ---- */}
+        {showVideo && selectedVideoJob.status === "error" && (
+          <VideoErrorState
+            job={selectedVideoJob}
+            onDismiss={handleVideoDismiss}
+          />
         )}
 
         {/* ---- Selected Video Job: completed — Video player ---- */}
@@ -328,8 +403,11 @@ export function StudioCanvas() {
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
+                  ref={imagePreviewRef}
                   src={selectedImage.imageUrl}
                   alt={selectedImage.prompt}
+                  onMouseEnter={handleImageMouseEnter}
+                  onMouseLeave={handleImageMouseLeave}
                   className={cn(
                     "max-w-full max-h-full cursor-zoom-in object-contain",
                     "rounded-[2rem] border border-border bg-muted/35",
@@ -345,14 +423,19 @@ export function StudioCanvas() {
                 className={cn(
                   "pointer-events-none absolute inset-0 flex items-end justify-center pb-8",
                   "opacity-0 transition-opacity duration-200",
-                  "group-hover:opacity-100 group-focus-within:opacity-100",
+                  "group-focus-within:opacity-100",
+                  showImageControls && "opacity-100",
                 )}
               >
                 <div
+                  ref={imageControlsRef}
+                  onMouseEnter={handleImageControlsMouseEnter}
+                  onMouseLeave={handleImageControlsMouseLeave}
                   className={cn(
                     "pointer-events-auto flex items-center gap-3",
                     "translate-y-2 transition-transform duration-300",
-                    "group-hover:translate-y-0 group-focus-within:translate-y-0",
+                    "group-focus-within:translate-y-0",
+                    showImageControls && "translate-y-0",
                   )}
                 >
                   <Tooltip>

@@ -43,13 +43,19 @@ export type SettingsStore = SettingsState & SettingsActions;
 // Defaults
 // ---------------------------------------------------------------------------
 
-const DEFAULT_STATE: SettingsState = {
+// Persisted defaults – everything that is safe to write to localStorage.
+const DEFAULT_PERSISTED_STATE: Omit<SettingsState, "vertexAccessToken"> = {
   googleApiKey: "",
   falApiKey: "",
   aimlApiKey: "",
   airforceApiKey: "",
   vertexProjectId: "",
   vertexLocation: "us-central1",
+};
+
+// Full defaults (includes in-memory-only fields).
+const DEFAULT_STATE: SettingsState = {
+  ...DEFAULT_PERSISTED_STATE,
   vertexAccessToken: "",
 };
 
@@ -85,6 +91,15 @@ export const useSettingsStore = create<SettingsStore>()(
     {
       name: PERSIST_NAME,
       storage: createJSONStorage(() => localStorage),
+
+      // Exclude vertexAccessToken from localStorage – it stays in-memory only.
+      partialize: ({ vertexAccessToken: _, ...persisted }) => persisted,
+
+      // Preserve the current in-memory token when rehydrating persisted keys.
+      merge: (persisted, current) => ({
+        ...current,
+        ...(persisted as Partial<SettingsStore>),
+      }),
     },
   ),
 );

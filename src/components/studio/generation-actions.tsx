@@ -30,6 +30,7 @@ import type {
   ImageGenerationRequest,
   ImageGenerationResponse,
 } from "@/lib/types/generation";
+import { validateImageGenerationResponse } from "@/lib/types/generation";
 
 const MAX_IMAGE_JOB_ATTEMPTS = 2;
 
@@ -193,6 +194,7 @@ export function GenerationActionsProvider({
   const pollHandlesRef = useRef<Map<string, PollHandle>>(new Map());
   const imageAbortRef = useRef<Map<string, AbortController>>(new Map());
   const hasResumedImageJobs = useRef(false);
+  const isSubmittingVideoRef = useRef(false);
 
   const startPollingJob = useCallback(
     (jobId: string) => {
@@ -287,10 +289,8 @@ export function GenerationActionsProvider({
           if (!response.ok) {
             throw new Error(data.error || `${job.provider} generation failed`);
           }
+          validateImageGenerationResponse(data, job.provider);
           const images = getGeneratedImages(data);
-          if (images.length === 0) {
-            throw new Error(`${job.provider} generation returned no images`);
-          }
           return images;
         })
         .then((generatedImages) => {
@@ -301,6 +301,8 @@ export function GenerationActionsProvider({
 
           markImageJobCompleted(job.id, generatedImages[0].imageUrl);
 
+          // Reverse so the last image is completed first; since completeGeneration
+          // prepends to history, this preserves the original 1→N order in display.
           generatedImages.toReversed().forEach((generatedImage, indexFromEnd) => {
             const imageIndex = generatedImages.length - 1 - indexFromEnd;
             const image: GeneratedImage = {
@@ -357,8 +359,9 @@ export function GenerationActionsProvider({
 
       const prompt = params.prompt.trim();
       if (!prompt) return;
-      if (isSubmittingVideo) return;
+      if (isSubmittingVideoRef.current) return;
 
+      isSubmittingVideoRef.current = true;
       setIsSubmittingVideo(true);
       try {
         const credentials = buildProviderCredentials(
@@ -407,12 +410,12 @@ export function GenerationActionsProvider({
             : "Failed to start video generation";
         toast.error(message);
       } finally {
+        isSubmittingVideoRef.current = false;
         setIsSubmittingVideo(false);
       }
     },
     [
       addVideoJob,
-      isSubmittingVideo,
       removeVideoJob,
       selectVideoJob,
       setPrompt,
@@ -520,7 +523,7 @@ export function GenerationActionsProvider({
   useEffect(() => {
     const pollHandles = pollHandlesRef.current;
     return () => {
-      pollHandles.forEach((handle) => handle.cancel());
+      pollHandles.forEach((handle) => { handle.cancel(); });
       pollHandles.clear();
     };
   }, []);
@@ -536,17 +539,16 @@ export function GenerationActionsProvider({
     for (const job of activeJobs) {
       if (job.attempts >= MAX_IMAGE_JOB_ATTEMPTS) {
         markImageJobError(job.id, "Generation interrupted — exceeded retry limit");
-        continue;
+      } else {
+        markImageJobError(job.id, "Generation interrupted — refresh requires manual retry");
       }
-
-      executeImageJob(job);
     }
-  }, [executeImageJob, markImageJobError]);
+  }, [markImageJobError]);
 
   useEffect(() => {
     const abortControllers = imageAbortRef.current;
     return () => {
-      abortControllers.forEach((controller) => controller.abort());
+      abortControllers.forEach((controller) => { controller.abort(); });
       abortControllers.clear();
     };
   }, []);

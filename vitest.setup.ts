@@ -54,4 +54,9 @@ if (typeof Element.prototype.scrollIntoView === "undefined") {
 // Automatic cleanup after each test to guarantee isolation
 afterEach(() => {
   cleanup();
+  // Clear localStorage between tests to prevent state leaks from zustand
+  // persist middleware or other localStorage-backed stores.
+  if (typeof globalThis.localStorage !== "undefined" && typeof globalThis.localStorage.clear === "function") {
+    globalThis.localStorage.clear();
+  }
 });

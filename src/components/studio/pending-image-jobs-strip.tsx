@@ -203,7 +203,6 @@ const PendingCard = memo(function PendingCard({
           "transition-[opacity,color,background-color] duration-75",
           "cursor-pointer",
         )}
-        tabIndex={-1}
         aria-label="Cancel generation"
       >
         <X className="size-3" strokeWidth={2.5} />

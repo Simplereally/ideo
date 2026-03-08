@@ -124,7 +124,7 @@ export interface VideoRequestParams {
   enhancePrompt?: boolean;
   imageUrl?: string;
   audioUrl?: string;
-  shotType?: string;
+  shotType?: VideoShotType;
   seed?: number;
 }
 
@@ -616,7 +616,9 @@ export const MODELS: ModelConfig[] = [
     provider: "airforce",
     kind: "image",
     capabilities: {
-      maxImages: 4,
+      // Verified via direct API testing: Airforce supports n=1-10
+      // n>=11 returns HTTP 200 with empty data array (silent failure)
+      maxImages: 10,
       seed: true,
       aspectRatios: ["1:1", "16:9", "9:16", "4:3", "3:4"],
     },

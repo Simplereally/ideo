@@ -7,6 +7,7 @@ import { PromptDisplay } from "./prompt-display";
 import { MetadataBadges } from "./metadata-badges";
 import { ViewerActions } from "./viewer-actions";
 import { cn } from "@/lib/utils";
+import { INFO_PANEL_WIDTH } from "@/lib/constants";
 import type { Provider } from "@/lib/types";
 
 interface InfoPanelProps {
@@ -43,7 +44,7 @@ export function InfoPanel({
   return (
     <aside
       className={cn(
-        "flex h-full w-[340px] shrink-0 flex-col overflow-hidden",
+        `flex h-full w-[${INFO_PANEL_WIDTH}px] shrink-0 flex-col overflow-hidden`,
         "border-r border-border/50 bg-card/40 backdrop-blur-xl",
         className
       )}
