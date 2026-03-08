@@ -105,6 +105,12 @@ export function isValidImageGenerationResponse(
     resp.images.length > 0 &&
     resp.images.every(isValidGeneratedImageResult);
 
+  // If `images` is present but invalid (empty or contains broken entries),
+  // reject the entire response — don't let a valid `imageUrl` mask corrupt data.
+  if (resp.images !== undefined && !hasImages) {
+    return false;
+  }
+
   return hasImageUrl || hasImages;
 }
 

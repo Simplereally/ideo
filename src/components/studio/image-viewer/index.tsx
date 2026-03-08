@@ -6,6 +6,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type CSSProperties,
 } from "react";
 import { X } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -17,6 +18,14 @@ import { MODELS } from "@/lib/types";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { INFO_PANEL_WIDTH } from "@/lib/constants";
+
+/** Static max dimension styles derived from INFO_PANEL_WIDTH.
+ *  Tailwind cannot detect dynamic template-literal class names at build time,
+ *  so we use inline styles for these viewport-relative constraints. */
+const mediaMaxStyles: CSSProperties = {
+  maxHeight: "calc(100vh - 12px)",
+  maxWidth: `calc(100vw - ${INFO_PANEL_WIDTH}px - 12px)`,
+};
 
 const VALID_IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp", "gif"]);
 
@@ -280,7 +289,8 @@ export function ImageViewer() {
                 muted
                 loop
                 playsInline
-                className={`max-h-[calc(100vh-12px)] max-w-[calc(100vw-${INFO_PANEL_WIDTH}px-12px)] object-contain`}
+                style={mediaMaxStyles}
+                className="object-contain"
               />
             </div>
           )}
@@ -292,9 +302,10 @@ export function ImageViewer() {
               className={cn(
                 "relative rounded-2xl border border-border/50 shadow-2xl shadow-black/20",
                 zoomed
-                  ? `max-h-[calc(100vh-12px)] max-w-[calc(100vw-${INFO_PANEL_WIDTH}px-12px)] overflow-auto`
+                  ? "overflow-auto"
                   : "overflow-hidden"
               )}
+              style={zoomed ? mediaMaxStyles : undefined}
               onClick={(e) => e.stopPropagation()}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -310,10 +321,11 @@ export function ImageViewer() {
                   zoomed
                     ? "cursor-zoom-out"
                     : cn(
-                        `max-h-[calc(100vh-12px)] max-w-[calc(100vw-${INFO_PANEL_WIDTH}px-12px)] object-contain`,
+                        "object-contain",
                         isZoomable && "cursor-zoom-in"
                       )
                 )}
+                style={zoomed ? undefined : mediaMaxStyles}
               />
             </div>
           )}

@@ -6,6 +6,7 @@ import { resolveApiKey } from "@/lib/server/resolve-keys";
 import { extractApiKey } from "@/lib/server/extract-credentials";
 import type { ImageGenerationRequest, ImageGenerationResponse } from "@/lib/types/generation";
 import { validateImageGenerationResponse } from "@/lib/types/generation";
+import { MODELS } from "@/lib/types";
 
 function resolveImageCount(value: unknown, max: number): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return 1;
@@ -74,15 +75,24 @@ export async function POST(request: Request) {
   const rl = generationLimiter(getClientIp(request));
   if (!rl.allowed) return rateLimitResponse(rl);
 
-  let body: ImageGenerationRequest & { apiKey?: string; credentials?: { apiKey?: string } };
+  let parsed: unknown;
   try {
-    body = await request.json();
+    parsed = await request.json();
   } catch {
     return NextResponse.json(
       { error: "Invalid JSON body" },
       { status: 400 },
     );
   }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return NextResponse.json(
+      { error: "JSON body must be an object" },
+      { status: 400 },
+    );
+  }
+
+  const body = parsed as ImageGenerationRequest & { apiKey?: string; credentials?: { apiKey?: string } };
 
   // --- Resolve API key: credentials.apiKey > body.apiKey > env ---
   const clientKey = extractApiKey(body);
@@ -96,7 +106,11 @@ export async function POST(request: Request) {
   }
   const apiKey = keyResult.value;
 
-  if (!body.prompt || !body.model || !body.aspectRatio) {
+  if (
+    typeof body.prompt !== "string" || !body.prompt.trim() ||
+    typeof body.model !== "string" || !body.model.trim() ||
+    typeof body.aspectRatio !== "string" || !body.aspectRatio.trim()
+  ) {
     return NextResponse.json(
       { error: "`prompt`, `model`, and `aspectRatio` are required" },
       { status: 400 },
@@ -128,19 +142,25 @@ export async function POST(request: Request) {
   if (IMAGE_SIZE_MODELS.has(apiModelId)) {
     aimlBody.image_size = mapImageSize(body.aspectRatio);
   }
-  if (body.seed != null) {
+
+  // Look up the model's declared capabilities from the shared catalog
+  // so we only forward controls the model actually supports.
+  const modelEntry = MODELS.find((m) => m.value === apiModelId && m.provider === "aiml");
+  const caps = modelEntry?.capabilities;
+
+  if (caps?.seed && body.seed != null) {
     aimlBody.seed = body.seed;
   }
-  if (body.negativePrompt) {
+  if (caps?.negativePrompt && body.negativePrompt) {
     aimlBody.negative_prompt = body.negativePrompt;
   }
-  if (body.enhancePrompt != null) {
+  if (caps?.enhancePrompt && body.enhancePrompt != null) {
     aimlBody.enhance_prompt = body.enhancePrompt;
   }
-  // Z Image Turbo: always hardcode 8 steps, ignoring any client value
+  // Z Image Turbo: always hardcode 8 steps (API range is 1-8)
   if (apiModelId === "alibaba/z-image-turbo") {
     aimlBody.num_inference_steps = 8;
-  } else if (body.numInferenceSteps != null) {
+  } else if (caps?.numInferenceSteps && body.numInferenceSteps != null) {
     const max = MAX_INFERENCE_STEPS[apiModelId];
     aimlBody.num_inference_steps = max
       ? Math.min(body.numInferenceSteps, max)

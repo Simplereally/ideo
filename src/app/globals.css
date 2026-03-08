@@ -41,6 +41,7 @@
   --color-muted-foreground: var(--muted-foreground);
 
   --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
 
   --color-popover: var(--popover);
   --color-popover-foreground: var(--popover-foreground);
@@ -72,6 +73,7 @@
   --muted-foreground: #86868B;
 
   --destructive: #FF3B30;
+  --destructive-foreground: #ffffff;
 
   --popover: rgba(255, 255, 255, 0.85);
   --popover-foreground: #1D1D1F;
@@ -101,6 +103,7 @@
   --muted-foreground: oklch(0.7 0.01 50);
 
   --destructive: oklch(0.55 0.22 15);
+  --destructive-foreground: oklch(0.97 0.005 50);
 
   --popover: oklch(0.17 0.006 260);
   --popover-foreground: oklch(0.97 0.005 50);

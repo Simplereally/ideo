@@ -168,7 +168,7 @@ import { DEFAULT_MAX_PROMPT_LENGTH, getMaxPromptLength } from "@/lib/types";
 // We mock `useStudio` at the module level for simplicity.
 
 let mockPrompt = "";
-let mockModel = "google:imagen-4-0-generate-001";
+let mockModel = "google:imagen-4.0-generate-001";
 let mockSetPrompt: (p: string) => void;
 const mockOpenApiKeyDialog = vi.fn();
 const mockToggleControls = vi.fn();
@@ -315,7 +315,7 @@ function simulateKeyDown(
 describe("PromptComposer character limit", () => {
   beforeEach(() => {
     mockPrompt = "";
-    mockModel = "google:imagen-4-0-generate-001";
+    mockModel = "google:imagen-4.0-generate-001";
     mockSetPrompt = vi.fn((p: string) => {
       mockPrompt = p;
     });
@@ -739,7 +739,7 @@ describe("PromptComposer character limit", () => {
     });
 
     it("displays the correct counter for a 4000-limit model", () => {
-      mockModel = "google:imagen-4-0-generate-001";
+      mockModel = "google:imagen-4.0-generate-001";
       mockPrompt = "hello";
       render(<PromptComposer />);
 

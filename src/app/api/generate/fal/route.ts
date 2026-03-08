@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { fal } from "@fal-ai/client";
+import { createFalClient } from "@fal-ai/client";
 import { isAllowedModel } from "@/lib/server/model-allowlist";
 import { generationLimiter, getClientIp, rateLimitResponse } from "@/lib/server/rate-limit";
 import { resolveApiKey } from "@/lib/server/resolve-keys";
@@ -39,15 +39,24 @@ export async function POST(request: Request) {
   const rl = generationLimiter(getClientIp(request));
   if (!rl.allowed) return rateLimitResponse(rl);
 
-  let body: ImageGenerationRequest & { apiKey?: string; credentials?: { apiKey?: string } };
+  let parsed: unknown;
   try {
-    body = await request.json();
+    parsed = await request.json();
   } catch {
     return NextResponse.json(
       { error: "Invalid JSON body" },
       { status: 400 },
     );
   }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return NextResponse.json(
+      { error: "JSON body must be an object" },
+      { status: 400 },
+    );
+  }
+
+  const body = parsed as ImageGenerationRequest & { apiKey?: string; credentials?: { apiKey?: string } };
 
   // --- Resolve API key: credentials.apiKey > body.apiKey > env ---
   const clientKey = extractApiKey(body);
@@ -61,7 +70,11 @@ export async function POST(request: Request) {
   }
   const apiKey = keyResult.value;
 
-  if (!body.prompt || !body.model || !body.aspectRatio) {
+  if (
+    typeof body.prompt !== "string" || !body.prompt.trim() ||
+    typeof body.model !== "string" || !body.model.trim() ||
+    typeof body.aspectRatio !== "string" || !body.aspectRatio.trim()
+  ) {
     return NextResponse.json(
       { error: "`prompt`, `model`, and `aspectRatio` are required" },
       { status: 400 },
@@ -82,7 +95,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    fal.config({ credentials: apiKey });
+    const client = createFalClient({ credentials: apiKey });
     const numberOfImages = resolveImageCount(body.numberOfImages);
 
     const falInput: Record<string, unknown> = {
@@ -107,7 +120,7 @@ export async function POST(request: Request) {
       falInput.enable_safety_checker = body.enableSafetyChecker;
     }
 
-    const result = await fal.subscribe(apiModelId, { input: falInput });
+    const result = await client.subscribe(apiModelId, { input: falInput });
     const data = result.data as { images?: { url?: string }[] } | undefined;
 
     // Fal returns URLs directly — no upload needed.

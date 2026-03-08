@@ -10,7 +10,7 @@
  * unrelated user state.
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   studioReducer,
   initialState,
@@ -24,6 +24,20 @@ import {
   getModelsForProvider,
   type ModelConfig,
 } from "@/lib/types";
+
+// Allow per-test overrides of getDefaultModelForProvider so we can force the
+// SET_PROVIDER reducer path through a video-default scenario.
+vi.mock("@/lib/types", async (importOriginal) => {
+  const actual = (await importOriginal()) as Record<string, unknown>;
+  return {
+    ...actual,
+    getDefaultModelForProvider: vi.fn(
+      actual.getDefaultModelForProvider as (...args: unknown[]) => unknown,
+    ),
+  };
+});
+
+const mockedGetDefault = getDefaultModelForProvider as ReturnType<typeof vi.fn>;
 
 // ---------------------------------------------------------------------------
 // Test fixtures
@@ -320,56 +334,27 @@ describe("SET_PROVIDER", () => {
       payload: AIML_VIDEO_MODEL.id,
     });
 
-    // Path B: simulate SET_PROVIDER landing on a video default.
-    // Since we can't change MODELS ordering at runtime, we verify the
-    // mechanism by checking that SET_PROVIDER applies applyModelDefaults.
-    // The default model for aiml is currently image, so instead we verify
-    // the actual reducer logic: if we make the current model belong to
-    // a different provider, SET_PROVIDER will call getDefaultModelForProvider
-    // and spread applyModelDefaults. We test this by checking the code path
-    // for a provider where the default IS a video model.
-    //
-    // We can deterministically test this by noting that providers google,
-    // vertex, and fal all have image defaults. For aiml the default is image.
-    // So we test the invariant property directly: for any model M,
-    // applyModelDefaults(M) produces the same result regardless of whether
-    // it was reached via SET_MODEL or SET_PROVIDER. We already tested
-    // applyModelDefaults above. Here we verify SET_PROVIDER actually uses it.
-    //
-    // Concrete approach: manually step through with the aiml video model
-    // to verify SET_PROVIDER output matches SET_MODEL output for all
-    // video-specific fields.
+    // Path B: Force getDefaultModelForProvider to return the video model
+    // for "aiml" so SET_PROVIDER actually exercises the video-default branch.
+    mockedGetDefault.mockImplementation((provider: string) => {
+      if (provider === "aiml") return AIML_VIDEO_MODEL;
+      return MODELS.find((m) => m.provider === provider);
+    });
 
-    // We need a provider whose getDefaultModelForProvider returns a video
-    // model. We can't mutate MODELS, but we CAN verify the mechanism by
-    // looking at what SET_PROVIDER actually does when the default IS video.
-    // Let's verify this by checking all video-related fields match what
-    // applyModelDefaults would produce for that default model.
+    const viaSetProvider = studioReducer(dirtyState, {
+      type: "SET_PROVIDER",
+      payload: "aiml",
+    });
 
-    // For a direct proof: dispatch SET_PROVIDER for each provider and check
-    // that when the default model is video, the video fields are reset.
-    const providers = ["google", "vertex", "fal", "aiml"] as const;
-    for (const targetProvider of providers) {
-      const defaultModel = getDefaultModelForProvider(targetProvider);
-      if (!defaultModel || defaultModel.kind !== "video") continue;
+    // Restore default implementation for subsequent tests
+    mockedGetDefault.mockImplementation((provider: string) =>
+      MODELS.find((m) => m.provider === provider),
+    );
 
-      const result = studioReducer(dirtyState, {
-        type: "SET_PROVIDER",
-        payload: targetProvider,
-      });
-
-      const expectedDefaults = applyModelDefaults(defaultModel);
-      // Every key from applyModelDefaults must appear in the result
-      for (const [key, value] of Object.entries(expectedDefaults)) {
-        expect(result[key as keyof StudioState]).toBe(value);
-      }
-    }
-
-    // Since no current provider has a video default, let's also verify the
-    // structural guarantee: SET_MODEL and manually computing what SET_PROVIDER
-    // WOULD do for a video default model produce the same video state.
-    const expectedVideoDefaults = applyModelDefaults(AIML_VIDEO_MODEL);
-    for (const [key, value] of Object.entries(expectedVideoDefaults)) {
+    // Both paths must produce identical video defaults
+    const expectedDefaults = applyModelDefaults(AIML_VIDEO_MODEL);
+    for (const [key, value] of Object.entries(expectedDefaults)) {
+      expect(viaSetProvider[key as keyof StudioState]).toBe(value);
       expect(viaSetModel[key as keyof StudioState]).toBe(value);
     }
 
@@ -378,12 +363,28 @@ describe("SET_PROVIDER", () => {
     expect(viaSetModel.videoImageUrl).toBe("");
     expect(viaSetModel.videoAudioUrl).toBe("");
     expect(viaSetModel.numberOfImages).toBe(1);
+
+    // SET_PROVIDER and SET_MODEL should agree on all video fields
+    const videoFields = [
+      "duration",
+      "videoResolution",
+      "videoAspectRatio",
+      "generateAudio",
+      "videoImageUrl",
+      "videoAudioUrl",
+      "videoShotType",
+      "numberOfImages",
+    ] as const;
+
+    for (const field of videoFields) {
+      expect(viaSetProvider[field]).toBe(viaSetModel[field]);
+    }
   });
 
   it("SET_PROVIDER and SET_MODEL produce identical video state for the same target video model", () => {
-    // This is the definitive consistency test. We construct a state where
-    // SET_PROVIDER would pick a specific model, then compare against SET_MODEL
-    // picking the same model.
+    // This is the definitive consistency test. We mock getDefaultModelForProvider
+    // to return the video model for aiml, then dispatch both SET_PROVIDER and
+    // SET_MODEL and compare the results.
     const dirtyState: StudioState = {
       ...initialState,
       provider: "google",
@@ -404,19 +405,24 @@ describe("SET_PROVIDER", () => {
       payload: AIML_VIDEO_MODEL.id,
     });
 
-    // Manually construct what SET_PROVIDER would produce if aiml's default
-    // were this video model — by building the expected state ourselves
-    // using the shared applyModelDefaults helper (which is the whole point
-    // of the refactor).
-    const defaults = applyModelDefaults(AIML_VIDEO_MODEL);
-    const viaProviderSimulated: StudioState = {
-      ...dirtyState,
-      provider: "aiml",
-      model: AIML_VIDEO_MODEL.id,
-      ...defaults,
-    };
+    // Force getDefaultModelForProvider to return the video model for aiml
+    // so SET_PROVIDER actually exercises the video-default reducer branch.
+    mockedGetDefault.mockImplementation((provider: string) => {
+      if (provider === "aiml") return AIML_VIDEO_MODEL;
+      return MODELS.find((m) => m.provider === provider);
+    });
 
-    // All video-specific fields must match
+    const viaProvider = studioReducer(dirtyState, {
+      type: "SET_PROVIDER",
+      payload: "aiml",
+    });
+
+    // Restore default implementation
+    mockedGetDefault.mockImplementation((provider: string) =>
+      MODELS.find((m) => m.provider === provider),
+    );
+
+    // All video-specific fields must match between SET_MODEL and SET_PROVIDER
     const videoFields = [
       "duration",
       "videoResolution",
@@ -429,7 +435,7 @@ describe("SET_PROVIDER", () => {
     ] as const;
 
     for (const field of videoFields) {
-      expect(viaModel[field]).toBe(viaProviderSimulated[field]);
+      expect(viaProvider[field]).toBe(viaModel[field]);
     }
   });
 });

@@ -125,6 +125,10 @@ function buildImagePayloadFromState(
     payload.numInferenceSteps = state.numInferenceSteps;
   }
   if (apiModelId === "alibaba/z-image-turbo") {
+    // Z Image Turbo's API accepts num_inference_steps in range [1, 8].
+    // The upstream default is 2, but 8 produces significantly better quality
+    // with negligible latency cost on this turbo model. Hardcoded to avoid
+    // exposing a user-facing slider for a single model.
     payload.numInferenceSteps = 8;
   }
   if (caps?.safetyTolerance) {

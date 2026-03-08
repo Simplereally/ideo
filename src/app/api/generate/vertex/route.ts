@@ -9,6 +9,7 @@ import type {
   ImageGenerationResponse,
 } from "@/lib/types/generation";
 import { validateImageGenerationResponse } from "@/lib/types/generation";
+import { MODELS } from "@/lib/types";
 
 function resolveImageCount(value: number | undefined): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return 1;
@@ -27,18 +28,27 @@ export async function POST(request: Request) {
   if (!rl.allowed) return rateLimitResponse(rl);
 
   // -- Parse & validate request body --
-  let body: ImageGenerationRequest & {
-    vertex?: { accessToken?: string; projectId?: string; location?: string };
-    credentials?: { accessToken?: string; projectId?: string; location?: string };
-  };
+  let parsed: unknown;
   try {
-    body = await request.json();
+    parsed = await request.json();
   } catch {
     return NextResponse.json(
       { error: "Invalid JSON body" },
       { status: 400 },
     );
   }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return NextResponse.json(
+      { error: "JSON body must be an object" },
+      { status: 400 },
+    );
+  }
+
+  const body = parsed as ImageGenerationRequest & {
+    vertex?: { accessToken?: string; projectId?: string; location?: string };
+    credentials?: { accessToken?: string; projectId?: string; location?: string };
+  };
 
   // --- Resolve Vertex credentials: credentials > body.vertex > env ---
   const clientVertex = extractVertexCredentials(body);
@@ -52,7 +62,11 @@ export async function POST(request: Request) {
   }
   const { accessToken, projectId, location } = credResult.value;
 
-  if (!body.prompt || !body.model || !body.aspectRatio) {
+  if (
+    typeof body.prompt !== "string" || !body.prompt.trim() ||
+    typeof body.model !== "string" || !body.model.trim() ||
+    typeof body.aspectRatio !== "string" || !body.aspectRatio.trim()
+  ) {
     return NextResponse.json(
       { error: "`prompt`, `model`, and `aspectRatio` are required" },
       { status: 400 },
@@ -73,22 +87,27 @@ export async function POST(request: Request) {
   }
 
   // -- Build Vertex predict payload --
+  // Look up the model's declared capabilities from the shared catalog
+  // so we only forward controls the model actually supports.
+  const modelEntry = MODELS.find((m) => m.value === apiModelId && m.provider === "vertex");
+  const caps = modelEntry?.capabilities;
+
   const parameters: Record<string, unknown> = {
     sampleCount: resolveImageCount(body.numberOfImages),
     aspectRatio: body.aspectRatio,
     addWatermark: false,
   };
 
-  if (body.seed != null) {
+  if (caps?.seed && body.seed != null) {
     parameters.seed = body.seed;
   }
-  if (body.negativePrompt) {
+  if (caps?.negativePrompt && body.negativePrompt) {
     parameters.negativePrompt = body.negativePrompt;
   }
-  if (body.enhancePrompt != null) {
+  if (caps?.enhancePrompt && body.enhancePrompt != null) {
     parameters.enhancePrompt = body.enhancePrompt;
   }
-  if (body.personGeneration) {
+  if (caps?.personGeneration && body.personGeneration) {
     parameters.personGeneration = body.personGeneration;
   }
 

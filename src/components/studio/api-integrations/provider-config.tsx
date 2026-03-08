@@ -74,7 +74,7 @@ export const PROVIDER_CONFIG_BY_ID: Record<Provider, ProviderConfig> = {
   google: {
     id: "google",
     label: "Google AI",
-    tagline: "Imagen 3 via AI Studio",
+    tagline: "Imagen 4 via AI Studio",
     description:
       "Use your Google AI Studio key for browser-local bring-your-own-key requests.",
     docsUrl: "https://aistudio.google.com/app/apikey",
@@ -165,7 +165,7 @@ export const PROVIDER_CONFIG_BY_ID: Record<Provider, ProviderConfig> = {
   aiml: {
     id: "aiml",
     label: "AI/ML",
-    tagline: "Multi-provider image API",
+    tagline: "Multi-provider image & video API",
     description: "Bring an AI/ML API key for additional provider-backed models.",
     docsUrl: "https://docs.aimlapi.com/",
     docsLabel: "Docs",

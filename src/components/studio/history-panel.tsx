@@ -686,6 +686,9 @@ export function HistoryPanel({ overlay }: { overlay?: boolean } = {}) {
           ease: [0.32, 0.72, 0, 1],
           delay: state.isHistoryOpen ? 0.05 : 0,
         }}
+        aria-hidden={!state.isHistoryOpen}
+        // @ts-expect-error -- `inert` is a valid HTML attribute (supported in all modern browsers)
+        inert={!state.isHistoryOpen ? "" : undefined}
         className="h-full min-w-[320px]"
       >
         {panelContent}
