@@ -107,7 +107,7 @@ export function ActiveJobsMonitor() {
   if (activeJobs.length === 0) return null;
 
   return (
-    <div className="absolute bottom-36 right-4 z-30 flex flex-col items-end gap-2 pointer-events-none">
+    <div className="pointer-events-none absolute right-4 bottom-4 z-30 flex flex-col items-end gap-2">
       <AnimatePresence mode="popLayout">
         {activeJobs.map((job) => (
           <div key={job.id} className="pointer-events-auto">

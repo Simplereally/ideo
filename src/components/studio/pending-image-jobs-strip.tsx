@@ -18,6 +18,7 @@ const PROVIDER_ACCENT: Record<Provider, { dot: string; ring: string }> = {
   vertex: { dot: "bg-emerald-500", ring: "border-emerald-500/40" },
   fal: { dot: "bg-violet-500", ring: "border-violet-500/40" },
   aiml: { dot: "bg-orange-500", ring: "border-orange-500/40" },
+  airforce: { dot: "bg-sky-500", ring: "border-sky-500/40" },
 };
 
 /** Snappy tween — everything under 200ms feel. */

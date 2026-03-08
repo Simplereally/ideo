@@ -2,7 +2,7 @@ export type AspectRatio = "1:1" | "16:9" | "9:16" | "4:3" | "3:4";
 
 export type GenerationStatus = "idle" | "generating" | "complete" | "error";
 
-export type Provider = "google" | "vertex" | "fal" | "aiml";
+export type Provider = "google" | "vertex" | "fal" | "aiml" | "airforce";
 
 // ---------------------------------------------------------------------------
 // Model capabilities — drives which controls appear in the UI
@@ -72,6 +72,18 @@ export interface ModelConfig {
   /** Discriminator: image generation vs video generation */
   kind: ModelKind;
   capabilities: ModelCapabilities;
+}
+
+export function getMaxImagesForModel(modelId: string): number {
+  const config = getModelConfig(modelId);
+  if (!config || config.kind === "video") return 1;
+
+  return Math.max(1, config.capabilities.maxImages ?? 1);
+}
+
+export function getBatchSizeOptions(modelId: string): number[] {
+  const maxImages = getMaxImagesForModel(modelId);
+  return Array.from({ length: maxImages }, (_unused, index) => index + 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -373,6 +385,7 @@ export const MODELS: ModelConfig[] = [
     provider: "aiml",
     kind: "image",
     capabilities: {
+      maxImages: 10,
       seed: true,
       // API schema has no maxLength — use default
     },
@@ -397,6 +410,7 @@ export const MODELS: ModelConfig[] = [
     provider: "aiml",
     kind: "image",
     capabilities: {
+      maxImages: 4,
       seed: true,
       maxPromptLength: 4000,
     },
@@ -409,6 +423,7 @@ export const MODELS: ModelConfig[] = [
     provider: "aiml",
     kind: "image",
     capabilities: {
+      maxImages: 4,
       seed: true,
       maxPromptLength: 4000,
     },
@@ -591,6 +606,82 @@ export const MODELS: ModelConfig[] = [
       videoAspectRatios: ["16:9", "9:16", "1:1", "4:3", "3:4"],
     },
   },
+
+  // ---- Airforce API: Image models ----
+  {
+    id: "airforce:grok-imagine",
+    value: "grok-imagine",
+    label: "Grok Imagine",
+    description: "xAI's image generation model",
+    provider: "airforce",
+    kind: "image",
+    capabilities: {
+      maxImages: 4,
+      seed: true,
+      aspectRatios: ["1:1", "16:9", "9:16", "4:3", "3:4"],
+    },
+  },
+  {
+    id: "airforce:flux-2-pro",
+    value: "flux-2-pro",
+    label: "FLUX 2 Pro",
+    description: "High-end image generation by BFL.ai",
+    provider: "airforce",
+    kind: "image",
+    capabilities: {
+      seed: true,
+      aspectRatios: ["1:1", "16:9", "9:16", "4:3", "3:4"],
+    },
+  },
+  {
+    id: "airforce:wan-2.6",
+    value: "wan-2.6",
+    label: "Wan 2.6",
+    description: "Alibaba's advanced image model",
+    provider: "airforce",
+    kind: "image",
+    capabilities: {
+      seed: true,
+      negativePrompt: true,
+      aspectRatios: ["1:1", "16:9", "9:16", "4:3", "3:4"],
+    },
+  },
+
+  // ---- Airforce API: Video models ----
+  {
+    id: "airforce:grok-imagine-video",
+    value: "grok-imagine-video",
+    label: "Grok Imagine Video",
+    description: "xAI's video generation model",
+    provider: "airforce",
+    kind: "video",
+    capabilities: {
+      videoAspectRatios: ["16:9", "9:16", "1:1"],
+      durationOptions: [5, 10],
+    },
+  },
+  {
+    id: "airforce:sora-2",
+    value: "sora-2",
+    label: "Sora 2",
+    description: "OpenAI's video generation (unstable)",
+    provider: "airforce",
+    kind: "video",
+    capabilities: {
+      durationOptions: [5, 10],
+    },
+  },
+  {
+    id: "airforce:veo-3.1-fast",
+    value: "veo-3.1-fast",
+    label: "Veo 3.1 Fast",
+    description: "Google's fast video generation",
+    provider: "airforce",
+    kind: "video",
+    capabilities: {
+      durationOptions: [5, 8],
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -639,6 +730,7 @@ export const PROVIDER_LABELS: Record<Provider, string> = {
   vertex: "Vertex AI",
   fal: "Fal AI",
   aiml: "AI/ML API",
+  airforce: "Airforce API",
 };
 
 /** Short provider labels for compact display */
@@ -647,6 +739,7 @@ export const PROVIDER_SHORT_LABELS: Record<Provider, string> = {
   vertex: "Vertex",
   fal: "Fal",
   aiml: "AI/ML",
+  airforce: "Airforce",
 };
 
 /**
@@ -658,6 +751,7 @@ const PROVIDER_DISPLAY_ORDER: readonly Provider[] = [
   "vertex",
   "fal",
   "aiml",
+  "airforce",
 ] as const;
 
 /**

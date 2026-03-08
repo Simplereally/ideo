@@ -106,6 +106,7 @@ describe("Data layer invariants", () => {
         "vertex",
         "fal",
         "aiml",
+        "airforce",
       ]);
       for (const model of MODELS) {
         expect(validProviders.has(model.provider)).toBe(true);
@@ -125,7 +126,7 @@ describe("Data layer invariants", () => {
     });
 
     it("getDefaultModelForProvider returns a model that belongs to that provider", () => {
-      const providers: Provider[] = ["google", "vertex", "fal", "aiml"];
+      const providers: Provider[] = ["google", "vertex", "fal", "aiml", "airforce"];
       for (const p of providers) {
         const defaultModel = getDefaultModelForProvider(p);
         expect(defaultModel).toBeDefined();
@@ -134,7 +135,7 @@ describe("Data layer invariants", () => {
     });
 
     it("getModelsForProvider returns only models for the given provider", () => {
-      const providers: Provider[] = ["google", "vertex", "fal", "aiml"];
+      const providers: Provider[] = ["google", "vertex", "fal", "aiml", "airforce"];
       for (const p of providers) {
         const models = getModelsForProvider(p);
         expect(models.length).toBeGreaterThan(0);
@@ -145,7 +146,7 @@ describe("Data layer invariants", () => {
     });
 
     it("getModelsForProvider returns disjoint sets across providers", () => {
-      const providers: Provider[] = ["google", "vertex", "fal", "aiml"];
+      const providers: Provider[] = ["google", "vertex", "fal", "aiml", "airforce"];
       const allReturnedIds: string[] = [];
       for (const p of providers) {
         const models = getModelsForProvider(p);

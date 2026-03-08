@@ -1,15 +1,19 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useLayoutEffect } from "react";
 import {
   Maximize2,
   Download,
   Film,
-  RotateCcw,
   XCircle,
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useStudio } from "@/lib/store";
 import { useVideoJobsStore } from "@/store/video-jobs";
 import { MODELS } from "@/lib/types";
@@ -20,10 +24,37 @@ import { cn } from "@/lib/utils";
 // Helpers
 // ---------------------------------------------------------------------------
 
-const IMAGE_SELECTION_TRANSITION = {
-  enter: { duration: 0.18, ease: [0.22, 1, 0.36, 1] as const },
-  exit: { duration: 0.12, ease: [0.4, 0, 1, 1] as const },
-};
+const MEDIA_FRAME_CLASS_NAME =
+  "relative overflow-hidden rounded-[2rem] border border-border bg-muted/35 shadow-[0_24px_48px_-12px_rgba(0,0,0,0.1)]";
+
+function useMeasuredStageSize<T extends HTMLElement>() {
+  const ref = useRef<T>(null);
+  const [size, setSize] = useState({ width: 0, height: 0 });
+
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+
+    const updateSize = () => {
+      setSize({
+        width: element.clientWidth,
+        height: element.clientHeight,
+      });
+    };
+
+    updateSize();
+
+    const observer = new ResizeObserver(() => {
+      updateSize();
+    });
+
+    observer.observe(element);
+
+    return () => observer.disconnect();
+  }, []);
+
+  return { ref, size };
+}
 
 function getVideoModelLabel(modelId: string): string {
   return (
@@ -99,6 +130,7 @@ function VideoPlayer({
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [hover, setHover] = useState(false);
+  const { ref: stageRef, size } = useMeasuredStageSize<HTMLDivElement>();
 
   return (
     <motion.div
@@ -107,27 +139,31 @@ function VideoPlayer({
       animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
       exit={{ opacity: 0, scale: 0.95, filter: "blur(20px)" }}
       transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-      className="relative flex items-center justify-center p-8 w-full h-full"
+      className="relative flex h-full w-full items-center justify-center px-4 py-3 sm:px-6 sm:py-4"
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
     >
-      <div
-        className={cn(
-          "relative overflow-hidden rounded-[2rem] transition-shadow duration-500 group",
-          "shadow-[0_24px_48px_-12px_rgba(0,0,0,0.1)] hover:shadow-[0_32px_64px_-12px_rgba(0,0,0,0.15)]",
-          "border border-border",
-        )}
-      >
-        <video
-          ref={videoRef}
-          src={job.resultUrl}
-          controls
-          autoPlay
-          muted
-          loop
-          playsInline
-          className="max-h-[calc(100dvh-14rem)] max-w-[calc(100vw-6rem)] object-contain bg-muted"
-        />
+      <div ref={stageRef} className="relative h-full w-full">
+        <div className="absolute inset-0 grid place-items-center">
+          <div
+            className={cn(MEDIA_FRAME_CLASS_NAME, "hover:shadow-[0_32px_64px_-12px_rgba(0,0,0,0.15)]")}
+            style={{
+              maxWidth: size.width || undefined,
+              maxHeight: size.height || undefined,
+            }}
+          >
+            <video
+              ref={videoRef}
+              src={job.resultUrl}
+              controls
+              autoPlay
+              muted
+              loop
+              playsInline
+              className="block max-h-full max-w-full object-contain"
+            />
+          </div>
+        </div>
 
         {/* Hover overlay */}
         <AnimatePresence>
@@ -137,7 +173,7 @@ function VideoPlayer({
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
-              className="absolute top-0 left-0 right-0 flex items-start justify-end p-6 bg-gradient-to-b from-background/40 via-transparent to-transparent pointer-events-none"
+              className="absolute inset-x-0 top-0 flex items-start justify-end p-6 pointer-events-none"
             >
               <div className="pointer-events-auto flex items-center gap-3">
                 <Button
@@ -162,17 +198,14 @@ function VideoPlayer({
 // ---------------------------------------------------------------------------
 
 export function StudioCanvas() {
-  const { state, openImageViewer, resetStatus, setPrompt, setModel } =
-    useStudio();
-  const [imageHover, setImageHover] = useState(false);
+  const { state, openImageViewer } = useStudio();
 
-  const { status, selectedImage, error } = state;
+  const { status, selectedImage } = state;
 
   // Video job state
   const selectedJobId = useVideoJobsStore((s) => s.selectedJobId);
   const jobs = useVideoJobsStore((s) => s.jobs);
   const selectJob = useVideoJobsStore((s) => s.selectJob);
-  const retryJob = useVideoJobsStore((s) => s.retryJob);
 
   const selectedVideoJob = selectedJobId
     ? jobs.find((j) => j.id === selectedJobId) ?? null
@@ -207,22 +240,22 @@ export function StudioCanvas() {
     document.body.removeChild(link);
   }
 
-  function handleVideoRetry() {
-    if (!selectedVideoJob) return;
-    const payload = retryJob(selectedVideoJob.id);
-    if (payload) {
-      setModel(payload.model);
-      setPrompt(payload.params.prompt);
-    }
-    selectJob(null);
-  }
-
   function handleVideoDismiss() {
     selectJob(null);
   }
 
+  function handleImagePreviewClick(
+    e: React.MouseEvent<HTMLButtonElement>,
+    image: NonNullable<typeof selectedImage>
+  ) {
+    // Ignore pointer clicks on letterboxed whitespace inside the full-size button.
+    // Keep keyboard activation (detail === 0) working for accessibility.
+    if (e.detail > 0 && e.target === e.currentTarget) return;
+    openImageViewer(image);
+  }
+
   return (
-    <div className="absolute inset-0 z-10 flex items-center justify-center overflow-hidden pb-32">
+    <div className="absolute inset-0 z-10 flex items-center justify-center overflow-hidden px-3 py-2 sm:px-4 sm:py-3">
       <AnimatePresence mode="sync">
         {/* ---- Image Generating State ---- */}
         {status === "generating" && !showVideo && (
@@ -269,67 +302,94 @@ export function StudioCanvas() {
         {status !== "generating" && status !== "error" && showImage && (
           <motion.div
             key={selectedImage.id}
-            initial={{ opacity: 0, scale: 0.985 }}
-            animate={{
-              opacity: 1,
-              scale: 1,
-              transition: IMAGE_SELECTION_TRANSITION.enter,
-            }}
-            exit={{
-              opacity: 0,
-              scale: 1.01,
-              transition: IMAGE_SELECTION_TRANSITION.exit,
-            }}
-            className="pointer-events-none absolute inset-0 flex items-center justify-center p-8"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+            className="pointer-events-none absolute inset-0 flex items-center justify-center p-1"
           >
+            {/*
+              The image frame is sized purely by CSS:
+              - w-full h-full: fills the padded inset
+              - object-contain: preserves aspect ratio, fits entirely, never bleeds
+              - No JS-measured constraints, no ResizeObserver delay → zero jank
+              The parent flex centering + padding keeps uniform inset from all edges.
+            */}
             <div
               className={cn(
-                "pointer-events-auto relative overflow-hidden rounded-[2rem] transition-shadow duration-300 group",
-                "shadow-[0_24px_48px_-12px_rgba(0,0,0,0.1)] hover:shadow-[0_32px_64px_-12px_rgba(0,0,0,0.15)]",
-                "border border-border",
+                "pointer-events-auto group relative flex items-center justify-center w-full h-full",
               )}
-              onMouseEnter={() => setImageHover(true)}
-              onMouseLeave={() => setImageHover(false)}
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={selectedImage.imageUrl}
-                alt={selectedImage.prompt}
-                className="block max-h-[calc(100dvh-14rem)] max-w-[calc(100vw-6rem)] object-contain bg-muted"
-              />
+              <button
+                type="button"
+                onClick={(e) => handleImagePreviewClick(e, selectedImage)}
+                className="flex h-full w-full items-center justify-center rounded-[2rem] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                aria-label="Open image preview"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={selectedImage.imageUrl}
+                  alt={selectedImage.prompt}
+                  className={cn(
+                    "max-w-full max-h-full cursor-zoom-in object-contain",
+                    "rounded-[2rem] border border-border bg-muted/35",
+                    "shadow-[0_24px_48px_-12px_rgba(0,0,0,0.1)]",
+                    "transition-shadow duration-300",
+                    "hover:shadow-[0_32px_64px_-12px_rgba(0,0,0,0.15)]",
+                  )}
+                />
+              </button>
 
-              {/* Hover overlay */}
-              <AnimatePresence>
-                {imageHover && (
-                  <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.2 }}
-                    className="pointer-events-none absolute inset-0 flex flex-col items-center justify-end bg-gradient-to-t from-background/60 via-transparent to-transparent p-6"
-                  >
-                    {/* Actions */}
-                    <div className="pointer-events-auto flex items-center gap-3 transform translate-y-2 group-hover:translate-y-0 transition-transform duration-300">
+              {/* Hover/Focus controls */}
+              <div
+                className={cn(
+                  "pointer-events-none absolute inset-0 flex items-end justify-center pb-8",
+                  "opacity-0 transition-opacity duration-200",
+                  "group-hover:opacity-100 group-focus-within:opacity-100",
+                )}
+              >
+                <div
+                  className={cn(
+                    "pointer-events-auto flex items-center gap-3",
+                    "translate-y-2 transition-transform duration-300",
+                    "group-hover:translate-y-0 group-focus-within:translate-y-0",
+                  )}
+                >
+                  <Tooltip>
+                    <TooltipTrigger asChild>
                       <Button
                         variant="secondary"
                         size="icon"
                         className="size-10 rounded-full bg-card/90 text-foreground backdrop-blur-md hover:bg-card shadow-lg hover:scale-105 transition-all"
                         onClick={() => openImageViewer(selectedImage)}
+                        aria-label="Expand image preview"
                       >
-                        <Maximize2 className="size-4" />
+                        <Maximize2 className="size-4" aria-hidden="true" />
                       </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" sideOffset={8} className="text-xs font-medium">
+                      Expand preview
+                    </TooltipContent>
+                  </Tooltip>
+
+                  <Tooltip>
+                    <TooltipTrigger asChild>
                       <Button
                         variant="secondary"
                         size="icon"
                         className="size-10 rounded-full bg-card/90 text-foreground backdrop-blur-md hover:bg-card shadow-lg hover:scale-105 transition-all"
                         onClick={handleImageDownload}
+                        aria-label="Download image"
                       >
-                        <Download className="size-4" />
+                        <Download className="size-4" aria-hidden="true" />
                       </Button>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" sideOffset={8} className="text-xs font-medium">
+                      Download image
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+              </div>
             </div>
           </motion.div>
         )}

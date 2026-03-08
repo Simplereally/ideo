@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ProviderStatus } from "@/app/api/providers/status/route";
 
-const EMPTY: ProviderStatus = { google: false, vertex: false, fal: false, aiml: false };
+const EMPTY: ProviderStatus = { google: false, vertex: false, fal: false, aiml: false, airforce: false };
 
 /**
  * Fetches server-side provider configuration status once on mount.

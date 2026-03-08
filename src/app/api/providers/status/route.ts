@@ -11,6 +11,7 @@ export interface ProviderStatus {
   vertex: boolean;
   fal: boolean;
   aiml: boolean;
+  airforce: boolean;
 }
 
 export function GET() {
@@ -19,6 +20,7 @@ export function GET() {
     vertex: !!process.env.VERTEX_ACCESS_TOKEN && !!process.env.VERTEX_PROJECT_ID,
     fal: !!process.env.FAL_API_KEY,
     aiml: !!process.env.AIML_API_KEY,
+    airforce: !!process.env.AIRFORCE_API_KEY,
   };
 
   return NextResponse.json(status);

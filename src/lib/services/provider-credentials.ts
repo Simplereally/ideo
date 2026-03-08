@@ -44,6 +44,7 @@ export function buildProviderCredentials(
     | "googleApiKey"
     | "falApiKey"
     | "aimlApiKey"
+    | "airforceApiKey"
     | "vertexAccessToken"
     | "vertexProjectId"
     | "vertexLocation"
@@ -60,6 +61,10 @@ export function buildProviderCredentials(
     }
     case "aiml": {
       const key = settings.aimlApiKey.trim();
+      return key ? { apiKey: key } : undefined;
+    }
+    case "airforce": {
+      const key = settings.airforceApiKey.trim();
       return key ? { apiKey: key } : undefined;
     }
     case "vertex": {

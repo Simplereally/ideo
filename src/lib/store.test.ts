@@ -20,6 +20,7 @@ import {
 import {
   MODELS,
   getDefaultModelForProvider,
+  getMaxImagesForModel,
   getModelsForProvider,
   type ModelConfig,
 } from "@/lib/types";
@@ -113,6 +114,24 @@ describe("applyModelDefaults", () => {
   });
 });
 
+describe("doc-backed batch size limits", () => {
+  it("matches the reviewed AIML model batch support matrix", () => {
+    expect(getMaxImagesForModel("aiml:x-ai/grok-2-image")).toBe(10);
+    expect(getMaxImagesForModel("aiml:blackforestlabs/flux-2-pro")).toBe(1);
+    expect(getMaxImagesForModel("aiml:blackforestlabs/flux-2")).toBe(4);
+    expect(getMaxImagesForModel("aiml:bytedance/seedream-v4-text-to-image")).toBe(4);
+    expect(getMaxImagesForModel("aiml:bytedance/seedream-4-5")).toBe(1);
+    expect(getMaxImagesForModel("aiml:alibaba/wan-2-6-image")).toBe(1);
+    expect(getMaxImagesForModel("aiml:alibaba/z-image-turbo")).toBe(4);
+  });
+
+  it("matches the reviewed Airforce model batch support matrix", () => {
+    expect(getMaxImagesForModel("airforce:grok-imagine")).toBe(4);
+    expect(getMaxImagesForModel("airforce:flux-2-pro")).toBe(1);
+    expect(getMaxImagesForModel("airforce:wan-2.6")).toBe(1);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // SET_MODEL — video defaults
 // ---------------------------------------------------------------------------
@@ -183,6 +202,22 @@ describe("SET_MODEL", () => {
     });
 
     expect(next.provider).toBe("aiml");
+  });
+
+  it("clamps numberOfImages when switching to a model without batch support", () => {
+    const state: StudioState = {
+      ...initialState,
+      model: GOOGLE_IMAGE_MODEL.id,
+      provider: "google",
+      numberOfImages: 4,
+    };
+
+    const next = studioReducer(state, {
+      type: "SET_MODEL",
+      payload: "aiml:bytedance/seedream-4-5",
+    });
+
+    expect(next.numberOfImages).toBe(1);
   });
 });
 

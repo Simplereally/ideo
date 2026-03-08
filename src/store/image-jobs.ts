@@ -33,6 +33,14 @@ export interface ImageJob {
   error?: string;
 }
 
+export interface ImageRetryPayload {
+  prompt: string;
+  model: string;
+  provider: Provider;
+  aspectRatio: AspectRatio;
+  payload: ImageGenerationRequest;
+}
+
 // ---------------------------------------------------------------------------
 // State shape
 // ---------------------------------------------------------------------------
@@ -49,6 +57,7 @@ interface ImageJobsState {
   cancelJobLocal: (id: string) => void;
   removeJob: (id: string) => void;
   clearTerminalJobs: () => void;
+  retryJob: (id: string) => ImageRetryPayload | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -81,7 +90,7 @@ export const IMAGE_JOBS_PERSIST_NAME = "ideo-image-jobs";
 
 export const useImageJobsStore = create<ImageJobsState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       jobs: [],
 
       addJob: (job) =>
@@ -124,6 +133,18 @@ export const useImageJobsStore = create<ImageJobsState>()(
               j.status !== "cancelled",
           ),
         })),
+
+      retryJob: (id) => {
+        const job = get().jobs.find((j) => j.id === id);
+        if (!job) return null;
+        return {
+          prompt: job.prompt,
+          model: job.model,
+          provider: job.provider,
+          aspectRatio: job.aspectRatio,
+          payload: { ...job.payload },
+        };
+      },
     }),
     {
       name: IMAGE_JOBS_PERSIST_NAME,

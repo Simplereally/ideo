@@ -2,27 +2,17 @@
  * ApiKeyDialog — Executable Specification (BYOK)
  *
  * CONTRACT:
- *   The dialog renders editable inputs for each provider's BYOK fields.
- *   Values are persisted into `useSettingsStore` on every keystroke (autosave).
+ *   The dialog opens on a provider catalog first, then drills into a
+ *   provider-specific credential screen.
+ *   Values persist into `useSettingsStore` on every keystroke.
  *   Secret fields are masked by default with a reveal toggle.
- *   Provider status badges reflect both local keys and server-side config.
- *   Clear buttons remove stored keys per-provider.
- *
- * TEST STRATEGY:
- *   - Mock `useProviderStatus` for server-side connection status.
- *   - Mock `useStudio` to open the dialog (isApiKeyDialogOpen: true).
- *   - Use a real (in-memory) `useSettingsStore` -- reset between tests.
- *   - Assert BYOK input, persist, masked display, reveal, clear, reopen flows.
+ *   Provider status badges reflect local completeness and server-side config.
+ *   Clear actions remove stored values per-provider.
  */
 
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, it, expect, vi, beforeEach } from "vitest";
-
-// ---------------------------------------------------------------------------
-// Mocks -- vi.hoisted runs BEFORE vi.mock factory evaluation, so every
-// value referenced inside a vi.mock factory must originate from here.
-// ---------------------------------------------------------------------------
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   closeFnRef,
@@ -37,6 +27,7 @@ const {
     googleApiKey: "",
     falApiKey: "",
     aimlApiKey: "",
+    airforceApiKey: "",
     vertexProjectId: "",
     vertexLocation: "us-central1",
     vertexAccessToken: "",
@@ -48,34 +39,31 @@ const {
     setGoogleApiKey: (key: string) => set({ googleApiKey: key }),
     setFalApiKey: (key: string) => set({ falApiKey: key }),
     setAimlApiKey: (key: string) => set({ aimlApiKey: key }),
+    setAirforceApiKey: (key: string) => set({ airforceApiKey: key }),
     setVertexProjectId: (id: string) => set({ vertexProjectId: id }),
     setVertexLocation: (location: string) => set({ vertexLocation: location }),
     setVertexAccessToken: (token: string) => set({ vertexAccessToken: token }),
     clearKeys: () => set(defaults),
   }));
 
-  // Mutable ref — vi.fn isn't available inside vi.hoisted, so we use a
-  // container that module-scope code fills before any test runs.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const closeFnRef: { current: any } = { current: (..._args: unknown[]) => {} };
 
   return {
     closeFnRef,
-    mockStatus: { google: false, vertex: false, fal: false, aiml: false },
+    mockStatus: { google: false, vertex: false, fal: false, aiml: false, airforce: false },
     mockLoadingRef: { current: false },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     useSettingsStore: store as any,
   };
 });
 
-// Now that module scope is executing, wire up the real vi.fn.
 const closeApiKeyDialogFn = vi.fn();
 closeFnRef.current = closeApiKeyDialogFn;
 
 vi.mock("@/lib/store", () => ({
   useStudio: () => ({
     state: { isApiKeyDialogOpen: true },
-    // Delegate to the ref so the mock factory captures the container, not null.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     closeApiKeyDialog: (...args: any[]) => closeFnRef.current(...args),
   }),
@@ -88,7 +76,6 @@ vi.mock("@/hooks/use-provider-status", () => ({
   }),
 }));
 
-// Separator: purely decorative
 vi.mock("@/components/ui/separator", () => ({
   Separator: ({ className }: { className?: string }) => (
     <hr className={className} />
@@ -100,15 +87,7 @@ vi.mock("@/store/settings", () => ({
   PERSIST_NAME: "ideo-api-keys",
 }));
 
-// ---------------------------------------------------------------------------
-// Component under test
-// ---------------------------------------------------------------------------
-
 import { ApiKeyDialog, PROVIDER_FIELDS } from "../api-key-dialog";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function renderDialog() {
   return render(<ApiKeyDialog />);
@@ -123,6 +102,7 @@ function resetProviderStatus() {
   mockStatus.vertex = false;
   mockStatus.fal = false;
   mockStatus.aiml = false;
+  mockStatus.airforce = false;
   mockLoadingRef.current = false;
 }
 
@@ -137,9 +117,9 @@ function resetSettingsStore() {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
+async function openProvider(user: ReturnType<typeof userEvent.setup>, label: string) {
+  await user.click(screen.getByRole("button", { name: `Manage ${label}` }));
+}
 
 describe("ApiKeyDialog", () => {
   beforeEach(() => {
@@ -148,83 +128,88 @@ describe("ApiKeyDialog", () => {
     closeApiKeyDialogFn.mockClear();
   });
 
-  // -------------------------------------------------------------------------
-  // 1) Header & BYOK guidance
-  // -------------------------------------------------------------------------
-
-  describe("header and guidance", () => {
-    it("renders the dialog title", () => {
+  describe("catalog and navigation", () => {
+    it("renders the dialog title and provider-first guidance", () => {
       renderDialog();
       expect(screen.getByText("API Integrations")).toBeInTheDocument();
+      expect(screen.getByText(/pick a provider first/i)).toBeInTheDocument();
     });
 
-    it("explains that keys are stored locally", () => {
-      renderDialog();
-      expect(
-        screen.getByText(/keys are stored locally/i),
-      ).toBeInTheDocument();
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // 2) Provider list renders all providers
-  // -------------------------------------------------------------------------
-
-  describe("provider list", () => {
-    it("renders all four provider names", () => {
+    it("renders all five providers in the catalog", () => {
       renderDialog();
       expect(screen.getByText("Google AI")).toBeInTheDocument();
       expect(screen.getByText("Vertex AI")).toBeInTheDocument();
       expect(screen.getByText("Fal AI")).toBeInTheDocument();
       expect(screen.getByText("AI/ML")).toBeInTheDocument();
+      expect(screen.getByText("Airforce API")).toBeInTheDocument();
     });
 
-    it("renders docs links for each provider", () => {
+    it("renders a docs link for each provider on the catalog view", () => {
       renderDialog();
       const docsLinks = screen.getAllByText("Docs");
       expect(docsLinks).toHaveLength(4);
+
       for (const link of docsLinks) {
         const anchor = link.closest("a");
         expect(anchor).toHaveAttribute("target", "_blank");
         expect(anchor).toHaveAttribute("rel", "noopener noreferrer");
       }
     });
+
+    it("does not show provider fields until a provider is selected", () => {
+      renderDialog();
+      expect(screen.queryByPlaceholderText("AIza…")).not.toBeInTheDocument();
+      expect(
+        screen.queryByPlaceholderText("my-gcp-project"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("opens a provider detail screen and can navigate back", async () => {
+      const user = userEvent.setup();
+      renderDialog();
+
+      await openProvider(user, "Google AI");
+      expect(screen.getByPlaceholderText("AIza…")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /back/i })).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: /back/i }));
+      expect(screen.getByText("API Integrations")).toBeInTheDocument();
+      expect(screen.queryByPlaceholderText("AIza…")).not.toBeInTheDocument();
+    });
   });
 
-  // -------------------------------------------------------------------------
-  // 3) BYOK input fields exist
-  // -------------------------------------------------------------------------
-
-  describe("BYOK input fields", () => {
-    it("renders input fields for simple providers (google, fal, aiml)", () => {
+  describe("provider detail fields", () => {
+    it("renders simple provider fields after selecting google, fal, and aiml", async () => {
+      const user = userEvent.setup();
       renderDialog();
-      // Each of these has a single "API Key" field
-      expect(
-        screen.getByPlaceholderText("AIza\u2026"),
-      ).toBeInTheDocument(); // google
-      expect(
-        screen.getByPlaceholderText("fal_\u2026"),
-      ).toBeInTheDocument(); // fal
-      expect(
-        screen.getByPlaceholderText("sk-\u2026"),
-      ).toBeInTheDocument(); // aiml
+
+      await openProvider(user, "Google AI");
+      expect(screen.getByPlaceholderText("AIza…")).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: /back/i }));
+
+      await openProvider(user, "Fal AI");
+      expect(screen.getByPlaceholderText("fal_…")).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: /back/i }));
+
+      await openProvider(user, "AI/ML");
+      expect(screen.getByPlaceholderText("sk-…")).toBeInTheDocument();
     });
 
-    it("renders 3 fields for Vertex (project id, location, access token)", () => {
+    it("renders the full Vertex field set after selecting Vertex AI", async () => {
+      const user = userEvent.setup();
       renderDialog();
-      expect(
-        screen.getByPlaceholderText("my-gcp-project"),
-      ).toBeInTheDocument();
-      expect(
-        screen.getByPlaceholderText("us-central1"),
-      ).toBeInTheDocument();
-      expect(
-        screen.getByPlaceholderText("ya29.\u2026"),
-      ).toBeInTheDocument();
+
+      await openProvider(user, "Vertex AI");
+      expect(screen.getByPlaceholderText("my-gcp-project")).toBeInTheDocument();
+      expect(screen.getByPlaceholderText("us-central1")).toBeInTheDocument();
+      expect(screen.getByPlaceholderText("ya29.…")).toBeInTheDocument();
     });
 
-    it("Vertex location defaults to us-central1", () => {
+    it("Vertex location defaults to us-central1", async () => {
+      const user = userEvent.setup();
       renderDialog();
+
+      await openProvider(user, "Vertex AI");
       const locationInput = screen.getByPlaceholderText(
         "us-central1",
       ) as HTMLInputElement;
@@ -232,17 +217,13 @@ describe("ApiKeyDialog", () => {
     });
   });
 
-  // -------------------------------------------------------------------------
-  // 4) Typing keys persists into store (autosave)
-  // -------------------------------------------------------------------------
-
   describe("typing keys persists into store", () => {
     it("typing a Google API key updates the store", async () => {
       const user = userEvent.setup();
       renderDialog();
 
-      const input = screen.getByPlaceholderText("AIza\u2026");
-      await user.click(input);
+      await openProvider(user, "Google AI");
+      const input = screen.getByPlaceholderText("AIza…");
       await user.type(input, "AIzaTestKey123");
 
       expect(useSettingsStore.getState().googleApiKey).toBe("AIzaTestKey123");
@@ -252,8 +233,8 @@ describe("ApiKeyDialog", () => {
       const user = userEvent.setup();
       renderDialog();
 
-      const input = screen.getByPlaceholderText("fal_\u2026");
-      await user.click(input);
+      await openProvider(user, "Fal AI");
+      const input = screen.getByPlaceholderText("fal_…");
       await user.type(input, "fal_test_key");
 
       expect(useSettingsStore.getState().falApiKey).toBe("fal_test_key");
@@ -263,8 +244,8 @@ describe("ApiKeyDialog", () => {
       const user = userEvent.setup();
       renderDialog();
 
-      const input = screen.getByPlaceholderText("sk-\u2026");
-      await user.click(input);
+      await openProvider(user, "AI/ML");
+      const input = screen.getByPlaceholderText("sk-…");
       await user.type(input, "sk-aiml-key");
 
       expect(useSettingsStore.getState().aimlApiKey).toBe("sk-aiml-key");
@@ -274,16 +255,16 @@ describe("ApiKeyDialog", () => {
       const user = userEvent.setup();
       renderDialog();
 
+      await openProvider(user, "Vertex AI");
+
       const projectInput = screen.getByPlaceholderText("my-gcp-project");
-      await user.click(projectInput);
       await user.type(projectInput, "my-proj");
 
       const locationInput = screen.getByPlaceholderText("us-central1");
       await user.clear(locationInput);
       await user.type(locationInput, "europe-west1");
 
-      const tokenInput = screen.getByPlaceholderText("ya29.\u2026");
-      await user.click(tokenInput);
+      const tokenInput = screen.getByPlaceholderText("ya29.…");
       await user.type(tokenInput, "ya29.token");
 
       const state = useSettingsStore.getState();
@@ -293,23 +274,21 @@ describe("ApiKeyDialog", () => {
     });
   });
 
-  // -------------------------------------------------------------------------
-  // 5) Reopening shows stored values
-  // -------------------------------------------------------------------------
-
-  describe("reopening shows stored values", () => {
-    it("re-render shows previously stored key", async () => {
-      // Pre-populate the store
+  describe("stored values show on reopen", () => {
+    it("shows a previously stored Google key", async () => {
+      const user = userEvent.setup();
       useSettingsStore.setState({ googleApiKey: "AIzaPersisted" });
 
       renderDialog();
+      await openProvider(user, "Google AI");
 
-      const input = screen.getByPlaceholderText("AIza\u2026") as HTMLInputElement;
-      // The value should be present (masked or not, the input value is set)
-      expect(input.value).toBe("AIzaPersisted");
+      expect((screen.getByPlaceholderText("AIza…") as HTMLInputElement).value).toBe(
+        "AIzaPersisted",
+      );
     });
 
-    it("Vertex fields show stored values on reopen", () => {
+    it("shows previously stored Vertex values", async () => {
+      const user = userEvent.setup();
       useSettingsStore.setState({
         vertexProjectId: "stored-proj",
         vertexLocation: "asia-east1",
@@ -317,125 +296,112 @@ describe("ApiKeyDialog", () => {
       });
 
       renderDialog();
+      await openProvider(user, "Vertex AI");
 
       expect(
-        (screen.getByPlaceholderText("my-gcp-project") as HTMLInputElement)
-          .value,
+        (screen.getByPlaceholderText("my-gcp-project") as HTMLInputElement).value,
       ).toBe("stored-proj");
       expect(
         (screen.getByPlaceholderText("us-central1") as HTMLInputElement).value,
       ).toBe("asia-east1");
-      expect(
-        (screen.getByPlaceholderText("ya29.\u2026") as HTMLInputElement).value,
-      ).toBe("ya29.stored");
+      expect((screen.getByPlaceholderText("ya29.…") as HTMLInputElement).value).toBe(
+        "ya29.stored",
+      );
     });
   });
 
-  // -------------------------------------------------------------------------
-  // 6) Secret input masking & reveal toggle
-  // -------------------------------------------------------------------------
-
   describe("secret masking and reveal", () => {
-    it("secret fields render as password type by default", () => {
-      renderDialog();
-      const googleInput = screen.getByPlaceholderText(
-        "AIza\u2026",
-      ) as HTMLInputElement;
-      expect(googleInput.type).toBe("password");
-    });
-
-    it("clicking reveal toggle changes type to text", async () => {
+    it("secret fields render as password inputs by default", async () => {
       const user = userEvent.setup();
       renderDialog();
 
-      // Find the reveal button nearest to the google input
-      const revealButtons = screen.getAllByLabelText("Reveal value");
-      expect(revealButtons.length).toBeGreaterThan(0);
+      await openProvider(user, "Google AI");
+      const googleInput = screen.getByPlaceholderText("AIza…") as HTMLInputElement;
+      expect(googleInput.type).toBe("password");
+    });
 
-      await user.click(revealButtons[0]);
+    it("reveal toggle switches a secret field to text", async () => {
+      const user = userEvent.setup();
+      renderDialog();
 
-      // Now the google input should be text type
-      const googleInput = screen.getByPlaceholderText(
-        "AIza\u2026",
-      ) as HTMLInputElement;
+      await openProvider(user, "Google AI");
+      await user.click(screen.getByLabelText("Reveal value"));
+
+      const googleInput = screen.getByPlaceholderText("AIza…") as HTMLInputElement;
       expect(googleInput.type).toBe("text");
     });
 
-    it("clicking hide button toggles back to password", async () => {
+    it("hide toggle switches the field back to password", async () => {
       const user = userEvent.setup();
       renderDialog();
 
-      // Reveal
-      const revealButton = screen.getAllByLabelText("Reveal value")[0];
-      await user.click(revealButton);
+      await openProvider(user, "Google AI");
+      await user.click(screen.getByLabelText("Reveal value"));
+      await user.click(screen.getByLabelText("Hide value"));
 
-      // Hide
-      const hideButton = screen.getByLabelText("Hide value");
-      await user.click(hideButton);
-
-      const googleInput = screen.getByPlaceholderText(
-        "AIza\u2026",
-      ) as HTMLInputElement;
+      const googleInput = screen.getByPlaceholderText("AIza…") as HTMLInputElement;
       expect(googleInput.type).toBe("password");
     });
 
-    it("non-secret fields (Vertex project id, location) render as text type", () => {
+    it("Vertex project id and location render as text inputs", async () => {
+      const user = userEvent.setup();
       renderDialog();
-      const projectInput = screen.getByPlaceholderText(
-        "my-gcp-project",
-      ) as HTMLInputElement;
-      expect(projectInput.type).toBe("text");
 
-      const locationInput = screen.getByPlaceholderText(
-        "us-central1",
-      ) as HTMLInputElement;
-      expect(locationInput.type).toBe("text");
+      await openProvider(user, "Vertex AI");
+      expect(
+        (screen.getByPlaceholderText("my-gcp-project") as HTMLInputElement).type,
+      ).toBe("text");
+      expect(
+        (screen.getByPlaceholderText("us-central1") as HTMLInputElement).type,
+      ).toBe("text");
     });
   });
 
-  // -------------------------------------------------------------------------
-  // 7) Clear / remove keys
-  // -------------------------------------------------------------------------
-
   describe("clear keys", () => {
-    it("clear button appears when a key is set", async () => {
+    it("shows a clear button when local values exist", async () => {
+      const user = userEvent.setup();
       useSettingsStore.setState({ googleApiKey: "some-key" });
+
       renderDialog();
+      await openProvider(user, "Google AI");
 
       expect(
         screen.getByLabelText("Clear Google AI keys"),
       ).toBeInTheDocument();
     });
 
-    it("clear button does NOT appear when no key is set", () => {
+    it("does not show a clear button when no local values exist", async () => {
+      const user = userEvent.setup();
       renderDialog();
+
+      await openProvider(user, "Google AI");
       expect(
         screen.queryByLabelText("Clear Google AI keys"),
       ).not.toBeInTheDocument();
     });
 
-    it("clicking clear removes the key from the store", async () => {
+    it("clearing Google removes the stored key", async () => {
       const user = userEvent.setup();
       useSettingsStore.setState({ googleApiKey: "to-be-cleared" });
-      renderDialog();
 
-      const clearBtn = screen.getByLabelText("Clear Google AI keys");
-      await user.click(clearBtn);
+      renderDialog();
+      await openProvider(user, "Google AI");
+      await user.click(screen.getByLabelText("Clear Google AI keys"));
 
       expect(useSettingsStore.getState().googleApiKey).toBe("");
     });
 
-    it("clicking clear on Vertex resets all 3 fields (location to default)", async () => {
+    it("clearing Vertex resets all fields and restores the default location", async () => {
       const user = userEvent.setup();
       useSettingsStore.setState({
         vertexProjectId: "proj",
         vertexLocation: "europe-west1",
         vertexAccessToken: "token",
       });
-      renderDialog();
 
-      const clearBtn = screen.getByLabelText("Clear Vertex AI keys");
-      await user.click(clearBtn);
+      renderDialog();
+      await openProvider(user, "Vertex AI");
+      await user.click(screen.getByLabelText("Clear Vertex AI keys"));
 
       const state = useSettingsStore.getState();
       expect(state.vertexProjectId).toBe("");
@@ -444,72 +410,66 @@ describe("ApiKeyDialog", () => {
     });
   });
 
-  // -------------------------------------------------------------------------
-  // 8) Status badges
-  // -------------------------------------------------------------------------
-
-  describe("status badges", () => {
-    it("shows 'Not configured' when no keys are set and server is disconnected", () => {
+  describe("status badges and counts", () => {
+    it("shows not configured for all providers by default", () => {
       renderDialog();
-      const badges = screen.getAllByText("Not configured");
-      expect(badges).toHaveLength(4);
+      expect(screen.getAllByText("Not configured")).toHaveLength(5);
     });
 
-    it("shows 'Key set' when user has entered a key", () => {
+    it("shows Key set when a provider has all required local fields", () => {
       useSettingsStore.setState({ googleApiKey: "user-key" });
       renderDialog();
+
       expect(screen.getByText("Key set")).toBeInTheDocument();
     });
 
-    it("shows 'Server key' when server is connected but no local key", () => {
+    it("shows Incomplete when only part of a multi-field provider is filled", () => {
+      useSettingsStore.setState({ vertexAccessToken: "ya29.partial" });
+      renderDialog();
+
+      expect(screen.getByText("Incomplete")).toBeInTheDocument();
+    });
+
+    it("shows Server key when only the server is configured", () => {
       setProviderStatus({ fal: true });
       renderDialog();
+
       expect(screen.getByText("Server key")).toBeInTheDocument();
     });
 
-    it("shows correct connected count in header", () => {
-      useSettingsStore.setState({ googleApiKey: "k" });
+    it("counts only complete local providers or server-configured providers as connected", () => {
+      useSettingsStore.setState({
+        googleApiKey: "g",
+        vertexProjectId: "proj",
+        vertexAccessToken: "token",
+      });
       setProviderStatus({ fal: true });
+
       renderDialog();
-      // Badge renders count and "/4 connected" as separate text nodes
-      const badge = screen.getByText((_content, el) =>
-        el?.tagName === "SPAN" &&
-        el?.getAttribute("data-slot") === "badge" &&
-        el?.textContent === "2/4 connected",
-      );
-      expect(badge).toBeInTheDocument();
+      expect(screen.getByText("3/5 connected")).toBeInTheDocument();
     });
 
-    it("shows 0/4 when nothing is configured", () => {
+    it("does not count partial Vertex input as connected", () => {
+      useSettingsStore.setState({ vertexAccessToken: "token-only" });
       renderDialog();
-      const badge = screen.getByText((_content, el) =>
-        el?.tagName === "SPAN" &&
-        el?.getAttribute("data-slot") === "badge" &&
-        el?.textContent === "0/4 connected",
-      );
-      expect(badge).toBeInTheDocument();
+
+      expect(screen.getByText("0/5 connected")).toBeInTheDocument();
     });
 
-    it("shows 4/4 when all configured", () => {
+    it("shows 5/5 when all providers are ready", () => {
       useSettingsStore.setState({
         googleApiKey: "g",
         falApiKey: "f",
         aimlApiKey: "a",
-        vertexAccessToken: "v",
+        airforceApiKey: "af",
+        vertexProjectId: "proj",
+        vertexAccessToken: "token",
       });
+
       renderDialog();
-      const badge = screen.getByText((_content, el) =>
-        el?.tagName === "SPAN" &&
-        el?.getAttribute("data-slot") === "badge" &&
-        el?.textContent === "4/4 connected",
-      );
-      expect(badge).toBeInTheDocument();
+      expect(screen.getByText("5/5 connected")).toBeInTheDocument();
     });
   });
-
-  // -------------------------------------------------------------------------
-  // 9) Close behavior
-  // -------------------------------------------------------------------------
 
   describe("close behavior", () => {
     it("calls closeApiKeyDialog when the Close button is clicked", async () => {
@@ -520,10 +480,6 @@ describe("ApiKeyDialog", () => {
       expect(closeApiKeyDialogFn).toHaveBeenCalledTimes(1);
     });
   });
-
-  // -------------------------------------------------------------------------
-  // 10) PROVIDER_FIELDS export structure
-  // -------------------------------------------------------------------------
 
   describe("PROVIDER_FIELDS structure", () => {
     it("google has 1 field", () => {
@@ -543,7 +499,7 @@ describe("ApiKeyDialog", () => {
     });
 
     it("vertex fields include project id, location, and access token", () => {
-      const keys = PROVIDER_FIELDS.vertex.map((f) => f.key);
+      const keys = PROVIDER_FIELDS.vertex.map((field) => field.key);
       expect(keys).toContain("vertexProjectId");
       expect(keys).toContain("vertexLocation");
       expect(keys).toContain("vertexAccessToken");

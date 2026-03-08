@@ -29,23 +29,32 @@ export function StudioHeader() {
   };
 
   return (
-    <header className="flex h-16 shrink-0 items-center justify-between px-6 z-40 bg-transparent">
+    <header className="z-40 flex h-12 shrink-0 items-center justify-between px-3 sm:h-13 sm:px-4">
       {/* Logo */}
-      <div className="flex items-center">
-        <span className="font-serif text-[1.6rem] tracking-tight font-medium text-foreground select-none">
+      <div className="flex items-center gap-3">
+        <span className="select-none font-serif text-[1.35rem] font-medium tracking-tight text-foreground sm:text-[1.45rem]">
           Ideo
         </span>
+        <div className="hidden items-center gap-2 rounded-full border border-border bg-card/70 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground backdrop-blur-sm sm:flex">
+          <span
+            className={cn(
+              "size-1.5 rounded-full",
+              hasConfiguredProviders ? "bg-emerald-500" : "bg-destructive",
+            )}
+          />
+          <span>{hasConfiguredProviders ? "Providers Ready" : "Keys Needed"}</span>
+        </div>
       </div>
 
       {/* Right actions */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2">
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
               variant="ghost"
               size="icon"
               onClick={toggleTheme}
-              className="size-10 rounded-full bg-card text-muted-foreground shadow-sm border border-border hover:text-foreground hover:border-border transition-colors"
+              className="size-9 rounded-full border border-border bg-card text-muted-foreground shadow-sm transition-colors hover:border-border hover:text-foreground"
             >
               {mounted ? (
                 resolvedTheme === "dark" ? (
@@ -70,7 +79,7 @@ export function StudioHeader() {
               variant="ghost"
               size="icon"
               onClick={openApiKeyDialog}
-              className="relative size-10 rounded-full bg-card text-muted-foreground shadow-sm border border-border hover:text-foreground hover:border-border transition-colors"
+              className="relative size-9 rounded-full border border-border bg-card text-muted-foreground shadow-sm transition-colors hover:border-border hover:text-foreground"
             >
               <Key className="size-[1.1rem]" strokeWidth={2} />
               <span

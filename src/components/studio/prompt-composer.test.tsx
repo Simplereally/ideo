@@ -134,6 +134,36 @@ vi.mock("sonner", () => ({
   toast: { error: vi.fn(), success: vi.fn() },
 }));
 
+vi.mock("./generation-actions", () => ({
+  useGenerationActions: () => ({
+    generateFromCurrentState: vi.fn(),
+    retryVideoJob: vi.fn(),
+    retryImageJob: vi.fn(),
+    isSubmittingVideo: false,
+  }),
+}));
+
+vi.mock("./model-combobox", () => ({
+  ModelCombobox: () => <div data-testid="model-combobox" />,
+}));
+
+vi.mock("./aspect-ratio-combobox", () => ({
+  AspectRatioCombobox: () => <div data-testid="aspect-ratio-combobox" />,
+}));
+
+vi.mock("./batch-size-popover", () => ({
+  BatchSizePopover: () => <div data-testid="batch-size-popover" />,
+}));
+
+vi.mock("./generation-actions", () => ({
+  useGenerationActions: () => ({
+    generateFromCurrentState: vi.fn(),
+    retryVideoJob: vi.fn(),
+    retryImageJob: vi.fn(),
+    isSubmittingVideo: false,
+  }),
+}));
+
 // ---------------------------------------------------------------------------
 // Minimal test wrapper that provides the useStudio context
 // ---------------------------------------------------------------------------
@@ -292,6 +322,14 @@ function simulateKeyDown(
 // ---------------------------------------------------------------------------
 
 describe("PromptComposer character limit", () => {
+  it("renders the batch size control alongside the composer selectors", () => {
+    render(<PromptComposer />);
+
+    expect(screen.getByTestId("model-combobox")).toBeInTheDocument();
+    expect(screen.getByTestId("aspect-ratio-combobox")).toBeInTheDocument();
+    expect(screen.getByTestId("batch-size-popover")).toBeInTheDocument();
+  });
+
   beforeEach(() => {
     mockPrompt = "";
     mockModel = "google:imagen-4-0-generate-001";

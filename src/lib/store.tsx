@@ -10,6 +10,7 @@ import {
 } from "react";
 import {
   MODELS,
+  getMaxImagesForModel,
   getModelsForProvider,
   getDefaultModelForProvider,
   getModelConfig,
@@ -199,6 +200,10 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
         ...state,
         provider: newProvider,
         model: defaultModel?.id ?? state.model,
+        numberOfImages: Math.min(
+          state.numberOfImages,
+          getMaxImagesForModel(defaultModel?.id ?? state.model),
+        ),
         ...applyModelDefaults(defaultModel),
       };
     }
@@ -226,11 +231,21 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
         ...state, 
         model: action.payload,
         provider: selectedModel ? selectedModel.provider : state.provider,
+        numberOfImages: Math.min(
+          state.numberOfImages,
+          getMaxImagesForModel(action.payload),
+        ),
         ...applyModelDefaults(selectedModel),
       };
     }
     case "SET_NUMBER_OF_IMAGES":
-      return { ...state, numberOfImages: action.payload };
+      return {
+        ...state,
+        numberOfImages: Math.min(
+          Math.max(1, action.payload),
+          getMaxImagesForModel(state.model),
+        ),
+      };
     case "SET_GUIDANCE_SCALE":
       return { ...state, guidanceScale: action.payload };
     // Video-specific reducers

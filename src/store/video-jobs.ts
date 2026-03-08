@@ -12,6 +12,7 @@ import type {
 
 export interface VideoRetryPayload {
   model: string;
+  provider: VideoJob["provider"];
   params: VideoRequestParams;
 }
 
@@ -44,6 +45,7 @@ interface VideoJobsState {
   cancelJobLocal: (id: string) => void;
   removeJob: (id: string) => void;
   clearCompletedJobs: () => void;
+  clearTerminalJobs: () => void;
   selectJob: (id: string | null) => void;
   /**
    * Build a retry payload from an existing job.
@@ -62,8 +64,23 @@ const ACTIVE_STATUSES: ReadonlySet<VideoGenerationStatus> = new Set([
   "generating",
 ]);
 
+const TERMINAL_STATUSES: ReadonlySet<VideoGenerationStatus> = new Set([
+  "completed",
+  "error",
+  "cancelled",
+]);
+
 function deriveActiveIds(jobs: VideoJob[]): string[] {
   return jobs.filter((j) => ACTIVE_STATUSES.has(j.status)).map((j) => j.id);
+}
+
+function resolveSelectedJobId(
+  jobs: VideoJob[],
+  selectedJobId: string | null,
+): string | null {
+  return selectedJobId && jobs.some((job) => job.id === selectedJobId)
+    ? selectedJobId
+    : null;
 }
 
 function now(): number {
@@ -157,11 +174,17 @@ export const useVideoJobsStore = create<VideoJobsState>()(
           return {
             jobs,
             activeJobIds: deriveActiveIds(jobs),
-            selectedJobId:
-              s.selectedJobId &&
-              jobs.some((j) => j.id === s.selectedJobId)
-                ? s.selectedJobId
-                : null,
+            selectedJobId: resolveSelectedJobId(jobs, s.selectedJobId),
+          };
+        }),
+
+      clearTerminalJobs: () =>
+        set((s) => {
+          const jobs = s.jobs.filter((j) => !TERMINAL_STATUSES.has(j.status));
+          return {
+            jobs,
+            activeJobIds: deriveActiveIds(jobs),
+            selectedJobId: resolveSelectedJobId(jobs, s.selectedJobId),
           };
         }),
 
@@ -170,7 +193,11 @@ export const useVideoJobsStore = create<VideoJobsState>()(
       retryJob: (id) => {
         const job = get().jobs.find((j) => j.id === id);
         if (!job) return null;
-        return { model: job.model, params: { ...job.params } };
+        return {
+          model: job.model,
+          provider: job.provider,
+          params: { ...job.params },
+        };
       },
     }),
     {

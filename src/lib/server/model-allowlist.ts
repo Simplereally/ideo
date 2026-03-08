@@ -15,6 +15,7 @@ const allowlistsByProvider: Record<Provider, ReadonlySet<string>> = {
   vertex: new Set(MODELS.filter((m) => m.provider === "vertex").map((m) => m.value)),
   fal: new Set(MODELS.filter((m) => m.provider === "fal").map((m) => m.value)),
   aiml: new Set(MODELS.filter((m) => m.provider === "aiml").map((m) => m.value)),
+  airforce: new Set(MODELS.filter((m) => m.provider === "airforce").map((m) => m.value)),
 };
 
 /**

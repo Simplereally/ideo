@@ -21,7 +21,7 @@ export interface ImageGenerationRequest {
 
   negativePrompt?: string;
   seed?: number;
-  /** Number of images to generate (providers currently cap at 1). */
+  /** Number of images to generate when the provider supports batching. */
   numberOfImages?: number;
 
   // fal-specific
@@ -37,16 +37,23 @@ export interface ImageGenerationRequest {
   personGeneration?: string;
 }
 
+export interface GeneratedImageResult {
+  imageUrl: string;
+  seed?: number;
+}
+
 // ---------------------------------------------------------------------------
 // Image generation response — the minimal shape every provider must return.
 // ---------------------------------------------------------------------------
 
 export interface ImageGenerationResponse {
-  /** Public or presigned URL to the generated image. */
-  imageUrl: string;
+  /** Public or presigned URL to the first generated image. */
+  imageUrl?: string;
   /**
    * Optional seed echoed back by the provider (useful for reproducibility).
    * Not all providers return this.
    */
   seed?: number;
+  /** All generated images, in provider order. */
+  images?: GeneratedImageResult[];
 }

@@ -16,6 +16,7 @@ import { useStudio } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import {
   ASPECT_RATIOS,
+  getBatchSizeOptions,
   getModelConfig,
   type AspectRatio,
   type ModelCapabilities,
@@ -198,6 +199,7 @@ const PERSON_GEN_OPTIONS = [
 interface AdvancedParametersProps {
   caps: ModelCapabilities | undefined;
   hasAdvancedControls: boolean;
+  batchSizeOptions: number[];
   // State values
   negativePrompt: string;
   guidanceScale: number;
@@ -224,6 +226,7 @@ interface AdvancedParametersProps {
 function AdvancedParameters({
   caps,
   hasAdvancedControls,
+  batchSizeOptions,
   negativePrompt,
   guidanceScale,
   numInferenceSteps,
@@ -410,13 +413,14 @@ function AdvancedParameters({
               </div>
             )}
 
-            {/* Batch Size — always visible */}
-            <SegmentedControl
-              label="Batch Size"
-              options={[1, 2, 3, 4]}
-              value={numberOfImages}
-              onChange={onNumberOfImagesChange}
-            />
+            {batchSizeOptions.length > 1 && (
+              <SegmentedControl
+                label="Batch Size"
+                options={batchSizeOptions}
+                value={numberOfImages}
+                onChange={onNumberOfImagesChange}
+              />
+            )}
 
             {/* Empty-state hint */}
             {!hasAdvancedControls && (
@@ -874,6 +878,7 @@ export function GenerationControls({ overlay }: { overlay?: boolean } = {}) {
                 <AdvancedParameters
                   caps={caps}
                   hasAdvancedControls={hasAdvanced}
+                  batchSizeOptions={getBatchSizeOptions(state.model)}
                   negativePrompt={state.negativePrompt}
                   guidanceScale={state.guidanceScale}
                   numInferenceSteps={state.numInferenceSteps}

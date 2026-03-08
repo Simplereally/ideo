@@ -17,6 +17,9 @@ export interface SettingsState {
   // AI/ML API
   aimlApiKey: string;
 
+  // Airforce API
+  airforceApiKey: string;
+
   // Vertex AI (service-account flow)
   vertexProjectId: string;
   vertexLocation: string;
@@ -27,6 +30,7 @@ interface SettingsActions {
   setGoogleApiKey: (key: string) => void;
   setFalApiKey: (key: string) => void;
   setAimlApiKey: (key: string) => void;
+  setAirforceApiKey: (key: string) => void;
   setVertexProjectId: (id: string) => void;
   setVertexLocation: (location: string) => void;
   setVertexAccessToken: (token: string) => void;
@@ -43,6 +47,7 @@ const DEFAULT_STATE: SettingsState = {
   googleApiKey: "",
   falApiKey: "",
   aimlApiKey: "",
+  airforceApiKey: "",
   vertexProjectId: "",
   vertexLocation: "us-central1",
   vertexAccessToken: "",
@@ -71,6 +76,7 @@ export const useSettingsStore = create<SettingsStore>()(
       setGoogleApiKey: (key) => set({ googleApiKey: key }),
       setFalApiKey: (key) => set({ falApiKey: key }),
       setAimlApiKey: (key) => set({ aimlApiKey: key }),
+      setAirforceApiKey: (key) => set({ airforceApiKey: key }),
       setVertexProjectId: (id) => set({ vertexProjectId: id }),
       setVertexLocation: (location) => set({ vertexLocation: location }),
       setVertexAccessToken: (token) => set({ vertexAccessToken: token }),
