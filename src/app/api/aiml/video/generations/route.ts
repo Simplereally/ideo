@@ -83,22 +83,14 @@ export async function POST(request: Request) {
   }
 
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30_000);
-    let upstream: Response;
-    try {
-      upstream = await fetch(UPSTREAM, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(upstreamBody),
-        signal: controller.signal,
-      });
-    } finally {
-      clearTimeout(timeout);
-    }
+    const upstream = await fetch(UPSTREAM, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(upstreamBody),
+    });
 
     // Preserve upstream status and body as-is so the client service layer
     // can apply its existing error-parsing logic unchanged.
@@ -108,12 +100,6 @@ export async function POST(request: Request) {
       headers: { "Content-Type": "application/json" },
     });
   } catch (err) {
-    if (err instanceof DOMException && err.name === "AbortError") {
-      return NextResponse.json(
-        { error: "AIML upstream request timed out" },
-        { status: 504 },
-      );
-    }
     console.error("[api/aiml/video/generations] POST upstream error:", err);
     return NextResponse.json(
       { error: "Failed to reach AIML upstream" },
@@ -155,24 +141,16 @@ export async function GET(request: Request) {
   }
 
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15_000);
-    let upstream: Response;
-    try {
-      upstream = await fetch(
-        `${UPSTREAM}?generation_id=${encodeURIComponent(generationId)}`,
-        {
-          method: "GET",
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            "Content-Type": "application/json",
-          },
-          signal: controller.signal,
+    const upstream = await fetch(
+      `${UPSTREAM}?generation_id=${encodeURIComponent(generationId)}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
         },
-      );
-    } finally {
-      clearTimeout(timeout);
-    }
+      },
+    );
 
     const data = await upstream.text();
     return new NextResponse(data, {
@@ -180,12 +158,6 @@ export async function GET(request: Request) {
       headers: { "Content-Type": "application/json" },
     });
   } catch (err) {
-    if (err instanceof DOMException && err.name === "AbortError") {
-      return NextResponse.json(
-        { error: "AIML upstream polling request timed out" },
-        { status: 504 },
-      );
-    }
     console.error("[api/aiml/video/generations] GET upstream error:", err);
     return NextResponse.json(
       { error: "Failed to reach AIML upstream" },
