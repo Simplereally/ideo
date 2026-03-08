@@ -102,13 +102,7 @@ function StudioDropdowns({
 describe("Data layer invariants", () => {
   describe("model-provider consistency", () => {
     it("every model belongs to exactly one of the known providers", () => {
-      const validProviders = new Set<Provider>([
-        "google",
-        "vertex",
-        "fal",
-        "aiml",
-        "airforce",
-      ]);
+      const validProviders = new Set<Provider>(getProviders());
       for (const model of MODELS) {
         expect(validProviders.has(model.provider)).toBe(true);
       }
@@ -127,7 +121,7 @@ describe("Data layer invariants", () => {
     });
 
     it("getDefaultModelForProvider returns a model that belongs to that provider", () => {
-      const providers: Provider[] = ["google", "vertex", "fal", "aiml", "airforce"];
+      const providers = getProviders();
       for (const p of providers) {
         const defaultModel = getDefaultModelForProvider(p);
         expect(defaultModel).toBeDefined();
@@ -136,7 +130,7 @@ describe("Data layer invariants", () => {
     });
 
     it("getModelsForProvider returns only models for the given provider", () => {
-      const providers: Provider[] = ["google", "vertex", "fal", "aiml", "airforce"];
+      const providers = getProviders();
       for (const p of providers) {
         const models = getModelsForProvider(p);
         expect(models.length).toBeGreaterThan(0);
@@ -147,7 +141,7 @@ describe("Data layer invariants", () => {
     });
 
     it("getModelsForProvider returns disjoint sets across providers", () => {
-      const providers: Provider[] = ["google", "vertex", "fal", "aiml", "airforce"];
+      const providers = getProviders();
       const allReturnedIds: string[] = [];
       for (const p of providers) {
         const models = getModelsForProvider(p);
@@ -384,11 +378,15 @@ describe("Component integration: provider ↔ model cascading", () => {
   });
 
   describe("edge cases", () => {
-    it("all four providers can be cycled through without errors", async () => {
+    it("all providers can be cycled through without errors", async () => {
       const user = userEvent.setup();
-      render(<StudioDropdowns initialProvider="google" />);
+      const initialProvider: Provider = "google";
+      render(<StudioDropdowns initialProvider={initialProvider} />);
 
-      const providers: Provider[] = ["vertex", "fal", "aiml", "google"];
+      // Cycle through every provider except the initial one (already selected),
+      // then cycle back to the initial provider to complete the round-trip.
+      const others = getProviders().filter((p) => p !== initialProvider);
+      const providers = [...others, initialProvider];
       const comboboxes = screen.getAllByRole("combobox");
 
       for (const provider of providers) {
