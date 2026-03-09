@@ -11,6 +11,7 @@ interface MetadataBadgesProps {
   timestamp?: number;
   isVideo?: boolean;
   provider?: Provider;
+  variant?: "default" | "mobile" | "compact";
   className?: string;
 }
 
@@ -24,30 +25,89 @@ function formatDate(timestamp: number): string {
   });
 }
 
+// Helper for compact date display
+function formatRelativeDate(timestamp: number): string {
+  const now = Date.now();
+  const diff = now - timestamp;
+  const minutes = Math.floor(diff / 60000);
+  const hours = Math.floor(diff / 3600000);
+  const days = Math.floor(diff / 86400000);
+
+  if (minutes < 1) return "Just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  if (days < 7) return `${days}d ago`;
+
+  return new Date(timestamp).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+}
+
 export function MetadataBadges({
   modelLabel,
   aspectRatio,
   timestamp,
   isVideo = false,
   provider,
+  variant = "default",
   className,
 }: MetadataBadgesProps) {
+  // Compact variant for sheet peek state - single line
+  if (variant === "compact") {
+    return (
+      <div className={cn("flex items-center gap-2 text-sm", className)}>
+        {isVideo ? (
+          <Film className="size-4 text-muted-foreground" />
+        ) : (
+          <ImageIcon className="size-4 text-muted-foreground" />
+        )}
+        <span className="font-medium truncate max-w-[120px]">{modelLabel}</span>
+        {timestamp && (
+          <>
+            <span className="text-muted-foreground/50">·</span>
+            <span className="text-muted-foreground text-xs">
+              {formatRelativeDate(timestamp)}
+            </span>
+          </>
+        )}
+      </div>
+    );
+  }
+
+  const isMobileVariant = variant === "mobile";
+
   return (
     <div className={cn("space-y-3", className)}>
       {/* Model */}
       <div className="flex items-start gap-3">
-        <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted/50">
+        <div
+          className={cn(
+            "flex shrink-0 items-center justify-center rounded-lg bg-muted/50",
+            isMobileVariant ? "size-10" : "size-8"
+          )}
+        >
           {isVideo ? (
-            <Film className="size-3.5 text-muted-foreground" />
+            <Film className={cn("text-muted-foreground", isMobileVariant ? "size-4" : "size-3.5")} />
           ) : (
-            <ImageIcon className="size-3.5 text-muted-foreground" />
+            <ImageIcon className={cn("text-muted-foreground", isMobileVariant ? "size-4" : "size-3.5")} />
           )}
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground/60 font-medium">
+          <p
+            className={cn(
+              "uppercase tracking-wider text-muted-foreground/60 font-medium",
+              isMobileVariant ? "text-xs" : "text-[10px]"
+            )}
+          >
             Model
           </p>
-          <p className="text-[13px] text-foreground font-medium truncate">
+          <p
+            className={cn(
+              "font-medium truncate",
+              isMobileVariant ? "text-sm" : "text-[13px]"
+            )}
+          >
             {modelLabel}
           </p>
         </div>
@@ -56,14 +116,29 @@ export function MetadataBadges({
       {/* Provider */}
       {provider && (
         <div className="flex items-start gap-3">
-          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted/50">
-            <Server className="size-3.5 text-muted-foreground" />
+          <div
+            className={cn(
+              "flex shrink-0 items-center justify-center rounded-lg bg-muted/50",
+              isMobileVariant ? "size-10" : "size-8"
+            )}
+          >
+            <Server className={cn("text-muted-foreground", isMobileVariant ? "size-4" : "size-3.5")} />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground/60 font-medium">
+            <p
+              className={cn(
+                "uppercase tracking-wider text-muted-foreground/60 font-medium",
+                isMobileVariant ? "text-xs" : "text-[10px]"
+              )}
+            >
               Provider
             </p>
-            <p className="text-[13px] text-foreground font-medium">
+            <p
+              className={cn(
+                "font-medium",
+                isMobileVariant ? "text-sm" : "text-[13px]"
+              )}
+            >
               {PROVIDER_LABELS[provider] ?? provider}
             </p>
           </div>
@@ -73,14 +148,29 @@ export function MetadataBadges({
       {/* Aspect Ratio */}
       {aspectRatio && (
         <div className="flex items-start gap-3">
-          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted/50">
-            <Ratio className="size-3.5 text-muted-foreground" />
+          <div
+            className={cn(
+              "flex shrink-0 items-center justify-center rounded-lg bg-muted/50",
+              isMobileVariant ? "size-10" : "size-8"
+            )}
+          >
+            <Ratio className={cn("text-muted-foreground", isMobileVariant ? "size-4" : "size-3.5")} />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground/60 font-medium">
+            <p
+              className={cn(
+                "uppercase tracking-wider text-muted-foreground/60 font-medium",
+                isMobileVariant ? "text-xs" : "text-[10px]"
+              )}
+            >
               Aspect Ratio
             </p>
-            <p className="text-[13px] text-foreground font-medium">
+            <p
+              className={cn(
+                "font-medium",
+                isMobileVariant ? "text-sm" : "text-[13px]"
+              )}
+            >
               {aspectRatio}
             </p>
           </div>
@@ -90,14 +180,29 @@ export function MetadataBadges({
       {/* Date */}
       {timestamp && (
         <div className="flex items-start gap-3">
-          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted/50">
-            <Calendar className="size-3.5 text-muted-foreground" />
+          <div
+            className={cn(
+              "flex shrink-0 items-center justify-center rounded-lg bg-muted/50",
+              isMobileVariant ? "size-10" : "size-8"
+            )}
+          >
+            <Calendar className={cn("text-muted-foreground", isMobileVariant ? "size-4" : "size-3.5")} />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground/60 font-medium">
+            <p
+              className={cn(
+                "uppercase tracking-wider text-muted-foreground/60 font-medium",
+                isMobileVariant ? "text-xs" : "text-[10px]"
+              )}
+            >
               Created
             </p>
-            <p className="text-[13px] text-foreground font-medium">
+            <p
+              className={cn(
+                "font-medium",
+                isMobileVariant ? "text-sm" : "text-[13px]"
+              )}
+            >
               {formatDate(timestamp)}
             </p>
           </div>

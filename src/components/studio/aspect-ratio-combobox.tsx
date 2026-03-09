@@ -62,7 +62,7 @@ export function AspectRatioCombobox({ className }: AspectRatioComboboxProps) {
         type="button"
         onClick={() => setOpen(true)}
         className={cn(
-          "hidden sm:flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium",
+          "flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium",
           "text-muted-foreground hover:bg-muted hover:text-foreground",
           "transition-colors",
           className

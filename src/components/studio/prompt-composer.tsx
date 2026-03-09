@@ -204,47 +204,53 @@ export function PromptComposer() {
 
           <motion.div
             layout
-            className="flex flex-wrap items-center justify-between gap-2 border-t border-border/60 px-3 pb-3 pt-2.5"
+            className="border-t border-border/60 px-3 pb-3 pt-2.5"
           >
-            <div className="flex items-center gap-1.5 ml-2 min-w-0">
+            {/* Row 1: Model selector full width */}
+            <div className="flex items-center min-w-0 ml-1">
               <ModelCombobox />
-              {!isVideoModel(state.model) && (
-                <>
-                  <div className="w-px h-4 bg-border mx-1 shrink-0 hidden sm:block" />
-                  <AspectRatioCombobox />
-                  <div className="w-px h-4 bg-border mx-1 shrink-0 hidden sm:block" />
-                  <BatchSizePopover />
-                </>
-              )}
             </div>
 
-            <div className="flex items-center gap-3 pr-1 shrink-0">
-              <span
-                className={cn(
-                  "text-xs font-sans tabular-nums tracking-tight transition-colors",
-                  state.prompt.length >= maxPromptLength
-                    ? "text-destructive font-medium"
-                    : state.prompt.length > maxPromptLength - 500
-                      ? "text-amber-500"
-                      : "text-muted-foreground/55",
+            {/* Row 2: Options left, Generate right */}
+            <div className="flex items-center justify-between gap-2 mt-1.5">
+              <div className="flex items-center gap-1 min-w-0">
+                {!isVideoModel(state.model) && (
+                  <>
+                    <AspectRatioCombobox />
+                    <div className="w-px h-4 bg-border mx-0.5 shrink-0" />
+                    <BatchSizePopover />
+                  </>
                 )}
-              >
-                {state.prompt.length}/{maxPromptLength}
-              </span>
-              <Button
-                size="default"
-                onClick={handleGenerate}
-                disabled={!canGenerate}
-                className={cn(
-                  "rounded-full bg-primary px-6 font-sans font-medium tracking-tight text-primary-foreground shadow-md transition-all duration-200 h-10",
-                  canGenerate
-                    ? "hover:scale-105 hover:bg-primary/90 opacity-100"
-                    : "opacity-50 cursor-not-allowed",
-                )}
-              >
-                <Sparkles className="mr-2 size-4" />
-                Generate
-              </Button>
+              </div>
+
+              <div className="flex items-center gap-3 pr-1 shrink-0">
+                <span
+                  className={cn(
+                    "text-xs font-sans tabular-nums tracking-tight transition-colors",
+                    state.prompt.length >= maxPromptLength
+                      ? "text-destructive font-medium"
+                      : state.prompt.length > maxPromptLength - 500
+                        ? "text-amber-500"
+                        : "text-muted-foreground/55",
+                  )}
+                >
+                  {state.prompt.length}/{maxPromptLength}
+                </span>
+                <Button
+                  size="default"
+                  onClick={handleGenerate}
+                  disabled={!canGenerate}
+                  className={cn(
+                    "rounded-full bg-primary px-6 font-sans font-medium tracking-tight text-primary-foreground shadow-md transition-all duration-200 h-10",
+                    canGenerate
+                      ? "hover:scale-105 hover:bg-primary/90 opacity-100"
+                      : "opacity-50 cursor-not-allowed",
+                  )}
+                >
+                  <Sparkles className="mr-2 size-4" />
+                  Generate
+                </Button>
+              </div>
             </div>
           </motion.div>
         </motion.div>

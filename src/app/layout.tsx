@@ -1,6 +1,7 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter, Newsreader } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
+import { ErrorSuppressor } from "@/components/error-suppressor";
 import { StudioProvider } from "@/lib/store";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
@@ -24,6 +25,13 @@ export const metadata: Metadata = {
   description: "Next generation image studio",
 };
 
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -34,6 +42,7 @@ export default function RootLayout({
       <body
         className={`${inter.variable} ${newsreader.variable} antialiased selection:bg-blue-500/20 selection:text-blue-900 dark:selection:bg-blue-400/30 dark:selection:text-blue-100`}
       >
+        <ErrorSuppressor />
         <ThemeProvider
           attribute="class"
           defaultTheme="system"
