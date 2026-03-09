@@ -60,6 +60,7 @@ const selectImage = vi.fn();
 const removeImage = vi.fn();
 const clearHistory = vi.fn();
 const toggleHistory = vi.fn();
+let isMobile = false;
 
 function createVideoJob(
   overrides: Partial<VideoJob> & Pick<VideoJob, "id" | "prompt" | "status">,
@@ -181,6 +182,10 @@ vi.mock("@/store/image-jobs", () => ({
     selector(imageStoreState),
 }));
 
+vi.mock("@/hooks/use-mobile", () => ({
+  useIsMobile: () => isMobile,
+}));
+
 vi.mock("../generation-actions", () => ({
   useGenerationActions: () => ({
     generateFromCurrentState: vi.fn(),
@@ -194,6 +199,7 @@ import { HistoryPanel } from "../history-panel";
 
 describe("HistoryPanel", () => {
   beforeEach(() => {
+    isMobile = false;
     retryImageJob.mockReset();
     retryVideoJob.mockReset();
 
@@ -353,6 +359,33 @@ describe("HistoryPanel", () => {
     await user.click(screen.getByRole("button", { name: /active video prompt/i }));
     expect(selectImage).toHaveBeenCalledWith(null);
     expect(videoStoreState.selectJob).toHaveBeenCalledWith("video-active");
+  });
+
+  it("closes the overlay history panel after selecting a saved image on mobile", async () => {
+    isMobile = true;
+    const user = userEvent.setup();
+
+    render(<HistoryPanel overlay />);
+
+    await user.click(screen.getByRole("button", { name: /completed history image/i }));
+
+    expect(selectImage).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "image-complete" }),
+    );
+    expect(toggleHistory).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not close the history panel after selecting on non-mobile screens", async () => {
+    const user = userEvent.setup();
+
+    render(<HistoryPanel overlay />);
+
+    await user.click(screen.getByRole("button", { name: /completed history image/i }));
+
+    expect(selectImage).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "image-complete" }),
+    );
+    expect(toggleHistory).not.toHaveBeenCalled();
   });
 
   it("shows a filter-specific empty state when no items match", async () => {

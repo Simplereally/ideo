@@ -22,6 +22,7 @@ import { MODELS } from "@/lib/types";
 import type { GeneratedImage, VideoGenerationStatus, VideoJob } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { useGenerationActions } from "./generation-actions";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
@@ -494,6 +495,7 @@ export function HistoryPanel({ overlay }: { overlay?: boolean } = {}) {
   const { state, selectImage, removeImage, clearHistory, toggleHistory } =
     useStudio();
   const { retryImageJob, retryVideoJob } = useGenerationActions();
+  const isMobile = useIsMobile();
   const [filter, setFilter] = useState<HistoryFilter>("all");
 
   const videoJobs = useVideoJobsStore((store) => store.jobs);
@@ -521,14 +523,22 @@ export function HistoryPanel({ overlay }: { overlay?: boolean } = {}) {
     imageJobs,
   });
 
+  function closeOverlayAfterSelection() {
+    if (overlay && isMobile && state.isHistoryOpen) {
+      toggleHistory();
+    }
+  }
+
   function handleSelectImage(image: GeneratedImage) {
     selectVideoJob(null);
     selectImage(image);
+    closeOverlayAfterSelection();
   }
 
   function handleSelectVideoJob(jobId: string) {
     selectImage(null);
     selectVideoJob(jobId);
+    closeOverlayAfterSelection();
   }
 
   function handleClearAll() {

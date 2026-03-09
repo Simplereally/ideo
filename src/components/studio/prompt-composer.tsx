@@ -20,6 +20,7 @@ import { PendingVideoJobsStrip } from "./pending-video-jobs-strip";
 import { ModelCombobox } from "./model-combobox";
 import { AspectRatioCombobox } from "./aspect-ratio-combobox";
 import { BatchSizePopover } from "./batch-size-popover";
+import { MOBILE_BREAKPOINT } from "@/lib/constants";
 
 const COLLAPSED_TEXTAREA_HEIGHT = 63;
 const MAX_TEXTAREA_HEIGHT = 240;
@@ -40,7 +41,9 @@ export function PromptComposer() {
   );
 
   useEffect(() => {
-    textareaRef.current?.focus();
+    if (window.innerWidth >= MOBILE_BREAKPOINT) {
+      textareaRef.current?.focus();
+    }
   }, []);
 
   const syncTextareaHeight = useCallback((expanded: boolean) => {
@@ -193,6 +196,7 @@ export function PromptComposer() {
               placeholder="Describe your vision..."
               rows={1}
               className={cn(
+                "studio-composer-input",
                 "w-full resize-none bg-transparent pt-0 text-foreground focus:outline-none transition-[height] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
                 "font-serif text-base leading-relaxed placeholder:text-muted-foreground/50",
                 "selection:bg-primary/20 selection:text-primary",

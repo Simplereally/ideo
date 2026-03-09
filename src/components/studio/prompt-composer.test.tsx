@@ -318,6 +318,11 @@ describe("PromptComposer character limit", () => {
   beforeEach(() => {
     mockPrompt = "";
     mockModel = "google:imagen-4.0-generate-001";
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      writable: true,
+      value: 1280,
+    });
     mockSetPrompt = vi.fn((p: string) => {
       mockPrompt = p;
     });
@@ -331,6 +336,30 @@ describe("PromptComposer character limit", () => {
     expect(screen.getByTestId("model-combobox")).toBeInTheDocument();
     expect(screen.getByTestId("aspect-ratio-combobox")).toBeInTheDocument();
     expect(screen.getByTestId("batch-size-popover")).toBeInTheDocument();
+  });
+
+  it("does not autofocus the composer textarea on mobile widths", () => {
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      writable: true,
+      value: 390,
+    });
+
+    render(<PromptComposer />);
+
+    expect(getTextarea()).not.toHaveFocus();
+  });
+
+  it("autofocuses the composer textarea on desktop widths", () => {
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      writable: true,
+      value: 1280,
+    });
+
+    render(<PromptComposer />);
+
+    expect(getTextarea()).toHaveFocus();
   });
 
   // ---- 1. Basic typing under limit ----
