@@ -290,7 +290,7 @@ function AdvancedParameters({
                     onChange={(e) => onNegativePromptChange(e.target.value)}
                     placeholder="Describe what to avoid..."
                     rows={2}
-                    className="w-full resize-none rounded-xl border border-border bg-input px-3.5 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:bg-muted"
+                    className="w-full resize-none rounded-xl border border-border bg-input px-3.5 py-3 text-base text-foreground placeholder:text-muted-foreground focus:outline-none focus:bg-muted md:text-sm"
                   />
                 </div>
               </div>
@@ -341,7 +341,7 @@ function AdvancedParameters({
                     value={seed}
                     onChange={(e) => onSeedChange(e.target.value.replace(/\D/g, ""))}
                     placeholder="Random"
-                    className="w-full rounded-xl border border-border bg-input px-4 py-2.5 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:bg-muted"
+                    className="w-full rounded-xl border border-border bg-input px-4 py-2.5 font-mono text-base text-foreground placeholder:text-muted-foreground focus:outline-none focus:bg-muted md:text-sm"
                   />
                 </div>
               </div>
@@ -618,7 +618,7 @@ function VideoParameters({
               value={videoImageUrl}
               onChange={(e) => onVideoImageUrlChange(e.target.value)}
               placeholder="https://..."
-              className="w-full rounded-xl border border-border bg-input px-3.5 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:bg-muted"
+              className="w-full rounded-xl border border-border bg-input px-3.5 py-2.5 text-base text-foreground placeholder:text-muted-foreground focus:outline-none focus:bg-muted md:text-sm"
             />
           </div>
         </div>
@@ -637,7 +637,7 @@ function VideoParameters({
               value={videoAudioUrl}
               onChange={(e) => onVideoAudioUrlChange(e.target.value)}
               placeholder="https://..."
-              className="w-full rounded-xl border border-border bg-input px-3.5 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:bg-muted"
+              className="w-full rounded-xl border border-border bg-input px-3.5 py-2.5 text-base text-foreground placeholder:text-muted-foreground focus:outline-none focus:bg-muted md:text-sm"
             />
           </div>
         </div>
@@ -659,7 +659,7 @@ function VideoParameters({
               onChange={(e) => onNegativePromptChange(e.target.value)}
               placeholder="Describe what to avoid..."
               rows={2}
-              className="w-full resize-none rounded-xl border border-border bg-input px-3.5 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:bg-muted"
+              className="w-full resize-none rounded-xl border border-border bg-input px-3.5 py-3 text-base text-foreground placeholder:text-muted-foreground focus:outline-none focus:bg-muted md:text-sm"
             />
           </div>
         </div>
@@ -686,7 +686,7 @@ function VideoParameters({
               value={seed}
               onChange={(e) => onSeedChange(e.target.value.replace(/\D/g, ""))}
               placeholder="Random"
-              className="w-full rounded-xl border border-border bg-input px-4 py-2.5 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:bg-muted"
+              className="w-full rounded-xl border border-border bg-input px-4 py-2.5 font-mono text-base text-foreground placeholder:text-muted-foreground focus:outline-none focus:bg-muted md:text-sm"
             />
           </div>
         </div>

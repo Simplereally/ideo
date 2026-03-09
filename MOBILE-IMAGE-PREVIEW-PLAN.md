@@ -12,9 +12,9 @@ This plan has been reviewed and updated to reflect the actual codebase state and
 
 1. **`useIsMobile` hook already exists** - Located at `src/hooks/use-mobile.ts`, not `src/lib/hooks/use-mobile.ts`. The plan incorrectly proposed creating a new hook. **Use the existing one.**
 
-2. **Drawer component already exists** - `src/components/ui/drawer.tsx` wraps vaul and provides `Drawer`, `DrawerContent`, `DrawerHeader`, etc. The plan proposed using vaul directly, but we should use the existing shadcn Drawer wrapper for consistency.
+2. **Drawer exists, but the shipped viewer does not use it** - `src/components/ui/drawer.tsx` wraps vaul, but the final mobile image viewer intentionally keeps `Dialog` as the fullscreen shell and uses a custom `motion.div` bottom sheet inside `DialogContent` to avoid layout snap and modal/gesture conflicts.
 
-3. **`@use-gesture/react` is NOT installed** - The plan correctly identifies this needs to be added, but the claim that vaul is "already in dependencies" for gestures was misleading. Vaul is for drawers only. The gesture library is a new dependency.
+3. **`@use-gesture/react` is the gesture dependency** - Vaul is only relevant for drawers. The shipped mobile viewer adds `@use-gesture/react` for pinch, pan, swipe, and double-tap support.
 
 4. **Line number references are incorrect** - The plan cites specific line numbers that don't match the actual code. Removed/corrected these references to prevent confusion.
 
@@ -44,7 +44,7 @@ This plan has been reviewed and updated to reflect the actual codebase state and
 
 ### Risk Clarifications
 
-1. **Vaul + Radix Dialog conflict** - This is a real concern. The solution is to NOT nest a Vaul Drawer inside a Radix Dialog. Instead, on mobile, we should replace the Dialog entirely with a custom fullscreen view + Drawer, not try to combine them.
+1. **Dialog + mobile sheet coordination** - This is the real concern in the shipped approach. The solution is to keep `Dialog` as the modal shell, render the mobile sheet as a sibling of the media area inside `DialogContent`, and animate the sheet with a fixed-height wrapper plus an absolutely positioned `motion.div` so expansion does not reflow the media.
 
 2. **iOS rubber-banding** - iOS Safari's elastic scrolling can conflict with custom gestures. Added `overscroll-behavior: none` requirement.
 
@@ -117,7 +117,7 @@ const mediaMaxStyles: CSSProperties = {
 **Required Changes:**
 - Import existing `useIsMobile` hook from `@/hooks/use-mobile`
 - Conditionally render layout: vertical stack on mobile, horizontal on desktop
-- Replace fixed panel with collapsible bottom sheet on mobile (use existing `Drawer` component)
+- Replace fixed panel with a collapsible bottom sheet on mobile (keep `Dialog`, add custom `MobileInfoSheet` motion sheet)
 - Implement touch gesture handlers for zoom, pan, and navigation
 
 ### 2. `info-panel.tsx` (Sidebar Details Panel)
@@ -137,9 +137,9 @@ Note: The template literal in className won't work with Tailwind's JIT compiler.
 
 **Required Changes:**
 - Hide entirely on mobile (conditionally render based on `useIsMobile`)
-- Create `MobileInfoSheet` variant using the existing `Drawer` component from `@/components/ui/drawer`
+- Create `MobileInfoSheet` as a custom sheet rendered inside `DialogContent`
 - Reduce content density: larger tap targets, more whitespace
-- Support drag-to-expand/collapse gesture (handled by vaul)
+- Support tap-to-expand/collapse without introducing Drawer-specific gesture conflicts
 - Add "peek" state showing minimal info (model, date) with expand affordance
 
 ### 3. `viewer-actions.tsx` (Download & Use Prompt Buttons)
@@ -299,139 +299,38 @@ const mediaMaxStyles: CSSProperties = isMobile
 
 **File:** `src/components/studio/image-viewer/mobile-info-sheet.tsx` (new file)
 
-Use the **existing** Drawer component from `@/components/ui/drawer`:
+Use the shipped `Dialog` + custom `motion.div` sheet architecture:
 
 ```tsx
-"use client";
+// index.tsx
+<DialogContent className="flex h-dvh max-h-dvh w-dvw max-w-dvw overflow-hidden ...">
+  <div className="relative flex flex-1 ...">{/* media */}</div>
+  {isMobile && <MobileInfoSheet ... />}
+</DialogContent>
 
-import { useState } from "react";
-import {
-  Drawer,
-  DrawerContent,
-  DrawerHeader,
-  DrawerTitle,
-} from "@/components/ui/drawer";
-import { PromptDisplay } from "./prompt-display";
-import { MetadataBadges } from "./metadata-badges";
-import { ViewerActions } from "./viewer-actions";
-import { cn } from "@/lib/utils";
-import type { Provider } from "@/lib/types";
-import {
-  MOBILE_SHEET_PEEK_HEIGHT,
-  MOBILE_SHEET_EXPANDED_RATIO,
-} from "@/lib/constants";
-
-interface MobileInfoSheetProps {
-  prompt: string;
-  negativePrompt?: string;
-  modelLabel: string;
-  aspectRatio?: string;
-  timestamp?: number;
-  isVideo?: boolean;
-  provider?: Provider;
-  onDownload: () => void;
-  onUsePrompt: () => void;
-}
-
-export function MobileInfoSheet({
-  prompt,
-  negativePrompt,
-  modelLabel,
-  aspectRatio,
-  timestamp,
-  isVideo = false,
-  provider,
-  onDownload,
-  onUsePrompt,
-}: MobileInfoSheetProps) {
-  // Two snap points: peek and expanded
-  const snapPoints = [
-    MOBILE_SHEET_PEEK_HEIGHT,
-    MOBILE_SHEET_EXPANDED_RATIO, // 0.6 = 60% of viewport
-  ];
-  const [snap, setSnap] = useState<number | string | null>(snapPoints[0]);
-
-  const isExpanded = snap === snapPoints[1];
-
-  return (
-    <Drawer
-      open={true}
-      snapPoints={snapPoints}
-      activeSnapPoint={snap}
-      setActiveSnapPoint={setSnap}
-      modal={false}
-      dismissible={false}
-      direction="bottom"
-    >
-      <DrawerContent
-        className={cn(
-          "mx-auto w-full max-w-lg rounded-t-2xl",
-          "bg-card/95 backdrop-blur-xl",
-          "pb-[env(safe-area-inset-bottom)]"
-        )}
-      >
-        {/* Drag handle is built into DrawerContent */}
-
-        <DrawerHeader className="pb-0">
-          <DrawerTitle className="sr-only">Generation Details</DrawerTitle>
-
-          {/* Peek state: compact metadata + action buttons */}
-          <div className="flex items-center justify-between gap-4">
-            <MetadataBadges
-              modelLabel={modelLabel}
-              timestamp={timestamp}
-              isVideo={isVideo}
-              variant="compact"
-            />
-            <ViewerActions
-              onDownload={onDownload}
-              onUsePrompt={onUsePrompt}
-              variant="compact"
-            />
-          </div>
-        </DrawerHeader>
-
-        {/* Expanded content - only render when expanded to save memory */}
-        {isExpanded && (
-          <div className="flex flex-col gap-4 px-4 pt-4 pb-6">
-            <PromptDisplay prompt={prompt} variant="mobile" />
-
-            {negativePrompt && (
-              <div className="space-y-1">
-                <p className="text-xs uppercase tracking-wider text-muted-foreground/60 font-medium">
-                  Negative Prompt
-                </p>
-                <p className="text-sm leading-relaxed text-foreground/70">
-                  {negativePrompt}
-                </p>
-              </div>
-            )}
-
-            <div className="h-px bg-border/40" />
-
-            <MetadataBadges
-              modelLabel={modelLabel}
-              aspectRatio={aspectRatio}
-              timestamp={timestamp}
-              isVideo={isVideo}
-              provider={provider}
-              variant="mobile"
-            />
-
-            <div className="h-px bg-border/40" />
-
-            <ViewerActions
-              onDownload={onDownload}
-              onUsePrompt={onUsePrompt}
-              variant="mobile"
-            />
-          </div>
-        )}
-      </DrawerContent>
-    </Drawer>
-  );
-}
+// mobile-info-sheet.tsx
+<div
+  style={{ height: MOBILE_SHEET_PEEK_HEIGHT, flexShrink: 0 }}
+  className="relative w-full max-w-lg overflow-visible mx-auto"
+>
+  <motion.div
+    style={{
+      height: expandedHeight,
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+    }}
+    animate={{
+      y: isExpanded ? -(expandedHeight - MOBILE_SHEET_PEEK_HEIGHT) : 0,
+    }}
+  >
+    {/* compact peek content + expanded details */}
+  </motion.div>
+</div>
 ```
+
+This keeps the shipped architecture explicit: `Dialog` remains the modal controller, while the mobile info panel is a custom sheet.
 
 #### 2.2 Integrate Sheet into ImageViewer
 
@@ -471,7 +370,7 @@ import { MobileInfoSheet } from "./mobile-info-sheet";
 )}
 ```
 
-**Important:** The Drawer must be rendered as a sibling to the main content, not inside the image container, to avoid z-index and touch event conflicts.
+**Important:** The custom mobile sheet must be rendered as a sibling to the main content inside `DialogContent`, not inside the image container, to avoid z-index, clipping, and touch event conflicts.
 
 ### Phase 3: Touch Gesture Implementation
 
@@ -1388,7 +1287,7 @@ const dismissVariants = {
 |------|---------|
 | `src/hooks/use-reduced-motion.ts` | Reduced motion preference detection hook |
 | `src/components/studio/image-viewer/touch-image.tsx` | Touch-enabled image component with pinch/pan/swipe gestures |
-| `src/components/studio/image-viewer/mobile-info-sheet.tsx` | Bottom sheet info panel for mobile (uses existing Drawer) |
+| `src/components/studio/image-viewer/mobile-info-sheet.tsx` | Bottom sheet info panel for mobile (custom motion sheet inside Dialog) |
 | `src/components/studio/image-viewer/image-nav-dots.tsx` | Pagination indicator for image navigation |
 
 ### Files to Modify
@@ -1406,7 +1305,7 @@ const dismissVariants = {
 | File | Notes |
 |------|-------|
 | `src/hooks/use-mobile.ts` | Already exists with correct implementation |
-| `src/components/ui/drawer.tsx` | Already wraps vaul, use for MobileInfoSheet |
+| `src/components/ui/drawer.tsx` | Exists in the codebase, but is intentionally not used by the shipped mobile viewer |
 
 ### Package Additions
 
@@ -1434,7 +1333,7 @@ bun add @use-gesture/react
    - Add image preloading
 
 3. **Day 3: Mobile UI Components**
-   - Create `MobileInfoSheet` using existing `Drawer` component
+   - Create `MobileInfoSheet` using the custom motion sheet architecture
    - Create `ImageNavDots` component
    - Update `ViewerActions` with variant prop
    - Update `MetadataBadges` with variant and compact mode
@@ -1449,7 +1348,7 @@ bun add @use-gesture/react
 
 5. **Day 5: Testing & Bug Fixes**
    - Test on real devices (or BrowserStack)
-   - Fix gesture conflicts with Drawer
+   - Verify sheet/media interaction and gesture behavior on real mobile devices
    - Verify safe area handling
    - Accessibility audit
    - Final polish
@@ -1460,9 +1359,9 @@ bun add @use-gesture/react
 
 ### Potential Issues & Solutions
 
-1. **Vaul Drawer + Radix Dialog nesting conflict**
-   - **Risk:** Vaul's gesture handling may conflict with Radix Dialog's dismiss behavior and focus management.
-   - **Solution:** The `MobileInfoSheet` uses `modal={false}` and `dismissible={false}` to prevent Vaul from controlling dismissal. The Dialog remains the top-level modal controller. Test thoroughly on iOS Safari.
+1. **Dialog + custom motion sheet coordination**
+   - **Risk:** A bottom sheet rendered inside the viewer can cause layout reflow, clipping issues, or conflicting touch regions if it participates in the normal flex layout.
+   - **Solution:** Keep `Dialog` as the top-level modal controller, render `MobileInfoSheet` as a sibling to the media area, reserve only the peek height in layout, and animate the full sheet with an absolutely positioned `motion.div`. Test thoroughly on iOS Safari.
 
 2. **iOS Safari viewport issues**
    - **Risk:** Address bar show/hide causes layout shifts, `100vh` doesn't account for browser chrome.

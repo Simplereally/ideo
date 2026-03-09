@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { ChevronDown, ChevronUp, Copy, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -18,6 +18,7 @@ export function PromptDisplay({
 }: PromptDisplayProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
+  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const TRUNCATE_LENGTH = variant === "mobile" ? 200 : 300;
   const shouldTruncate = prompt.length > TRUNCATE_LENGTH;
@@ -26,12 +27,27 @@ export function PromptDisplay({
     setIsExpanded((prev) => !prev);
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (copyTimeoutRef.current) {
+        clearTimeout(copyTimeoutRef.current);
+      }
+    };
+  }, []);
+
   const handleCopyPrompt = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(prompt);
       setCopied(true);
       toast.success("Prompt copied to clipboard");
-      setTimeout(() => setCopied(false), 1500);
+
+      if (copyTimeoutRef.current) {
+        clearTimeout(copyTimeoutRef.current);
+      }
+
+      copyTimeoutRef.current = setTimeout(() => {
+        setCopied(false);
+      }, 1500);
     } catch {
       toast.error("Failed to copy prompt");
     }

@@ -7,6 +7,7 @@ import { MetadataBadges } from "./metadata-badges";
 import { ViewerActions } from "./viewer-actions";
 import { cn } from "@/lib/utils";
 import { ChevronUp, ChevronDown } from "lucide-react";
+import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import type { Provider } from "@/lib/types";
 import {
   MOBILE_SHEET_PEEK_HEIGHT,
@@ -40,6 +41,7 @@ export function MobileInfoSheet({
   const [showHint, setShowHint] = useState(true);
   const contentRef = useRef<HTMLDivElement>(null);
   const [expandedHeight, setExpandedHeight] = useState(0);
+  const reducedMotion = useReducedMotion();
 
   // Calculate expanded height based on viewport
   useEffect(() => {
@@ -69,6 +71,10 @@ export function MobileInfoSheet({
   const toggleExpanded = () => setIsExpanded((prev) => !prev);
 
   const peekHeight = MOBILE_SHEET_PEEK_HEIGHT;
+  const sheetTransition = reducedMotion
+    ? { duration: 0 }
+    : { type: "spring" as const, damping: 40, stiffness: 500 };
+  const fadeTransition = reducedMotion ? { duration: 0 } : { duration: 0.15 };
 
   return (
     <div 
@@ -93,7 +99,7 @@ export function MobileInfoSheet({
         }}
         initial={false}
         animate={{ y: isExpanded ? -(expandedHeight - peekHeight) : 0 }}
-        transition={{ type: "spring", damping: 40, stiffness: 500 }}
+        transition={sheetTransition}
       >
       {/* Drag handle / toggle area */}
       <button
@@ -115,7 +121,7 @@ export function MobileInfoSheet({
               <span>Tap to collapse</span>
             </>
           ) : showHint ? (
-            <span className="animate-bounce flex items-center gap-1">
+            <span className={cn("flex items-center gap-1", !reducedMotion && "animate-bounce")}>
               <ChevronUp className="size-3" />
               <span>Tap for details</span>
             </span>
@@ -160,9 +166,11 @@ export function MobileInfoSheet({
           animate={{ 
             opacity: isExpanded ? 1 : 0,
           }}
-          transition={{ duration: 0.15 }}
+          transition={fadeTransition}
           className="flex flex-col gap-4 pb-6"
           style={{ pointerEvents: isExpanded ? "auto" : "none" }}
+          aria-hidden={!isExpanded}
+          inert={!isExpanded}
         >
           <div className="h-px bg-border/40" />
 

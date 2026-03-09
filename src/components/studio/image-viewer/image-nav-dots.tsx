@@ -21,7 +21,6 @@ export function ImageNavDots({ total, current, className }: ImageNavDotsProps) {
         "flex items-center justify-center gap-1.5",
         className
       )}
-      role="tablist"
       aria-label={`Image ${current + 1} of ${total}`}
     >
       {Array.from({ length: Math.min(total, maxDots) }).map((_, idx) => {
@@ -30,8 +29,6 @@ export function ImageNavDots({ total, current, className }: ImageNavDotsProps) {
         return (
           <div
             key={idx}
-            role="tab"
-            aria-selected={idx === current}
             className={cn(
               "rounded-full transition-all duration-200",
               isActive

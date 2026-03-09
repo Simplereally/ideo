@@ -70,12 +70,19 @@ export function TouchImage({
   }, [scale]);
 
   // Reset to default state
-  const resetTransform = useCallback(() => {
+  const resetTransform = useCallback((instant = false) => {
     scale.set(1);
     x.set(0);
     y.set(0);
+
+    if (instant) {
+      springScale.jump(1);
+      springX.jump(0);
+      springY.jump(0);
+    }
+
     startTransition(() => setIsZoomed(false));
-  }, [scale, x, y]);
+  }, [scale, x, y, springScale, springX, springY]);
 
   const bind = useGesture(
     {
@@ -177,6 +184,9 @@ export function TouchImage({
           if (scale.get() > 1.05) {
             // Zoomed - reset
             if (reducedMotionRef.current) {
+              scale.set(1);
+              x.set(0);
+              y.set(0);
               springScale.jump(1);
               springX.jump(0);
               springY.jump(0);
@@ -187,6 +197,9 @@ export function TouchImage({
           } else {
             // Not zoomed - zoom in
             if (reducedMotionRef.current) {
+              scale.set(2);
+              x.set(0);
+              y.set(0);
               springScale.jump(2);
               springX.jump(0);
               springY.jump(0);
@@ -213,6 +226,12 @@ export function TouchImage({
     container.addEventListener("pointerup", handlePointerUp);
     return () => container.removeEventListener("pointerup", handlePointerUp);
   }, [resetTransform, scale, x, y, springScale, springX, springY]);
+
+  useEffect(() => {
+    resetTransform(true);
+    setImageLoaded(false);
+    setImageError(false);
+  }, [src, resetTransform]);
 
   // Reset image state when src changes
   const handleImageLoad = useCallback(() => {

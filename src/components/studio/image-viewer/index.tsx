@@ -20,9 +20,13 @@ import { useVideoJobsStore } from "@/store/video-jobs";
 import { MODELS } from "@/lib/types";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { INFO_PANEL_WIDTH } from "@/lib/constants";
+import {
+  INFO_PANEL_WIDTH,
+  MOBILE_SHEET_PEEK_HEIGHT,
+} from "@/lib/constants";
 import { useIsMobile } from "@/hooks/use-mobile";
 const VALID_IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp", "gif"]);
+const MOBILE_MEDIA_GUTTER = 20;
 
 /** Extract a valid image file extension from a URL, or return a safe fallback. */
 function getImageExtension(url: string): string {
@@ -47,7 +51,7 @@ const desktopMediaMaxStyles: CSSProperties = {
 
 /** Mobile max dimension styles - leave room for sheet peek. */
 const mobileMediaMaxStyles: CSSProperties = {
-  maxHeight: "calc(100dvh - 140px)",
+  maxHeight: `calc(100dvh - ${MOBILE_SHEET_PEEK_HEIGHT + MOBILE_MEDIA_GUTTER}px)`,
   maxWidth: "calc(100vw - 16px)",
 };
 
@@ -167,7 +171,7 @@ export function ImageViewer() {
 
   // Preload adjacent images for smooth swipe navigation on mobile
   useEffect(() => {
-    if (!isMobile || !image || state.history.length < 2) return;
+    if (!isMobile || !showImage || !image || state.history.length < 2) return;
 
     const currentIndex = state.history.findIndex((img) => img.id === image.id);
 
@@ -180,7 +184,7 @@ export function ImageViewer() {
       const preloadImg = new Image();
       preloadImg.src = state.history[index].imageUrl;
     });
-  }, [isMobile, image, state.history]);
+  }, [isMobile, showImage, image, state.history]);
 
   // Zoom toggle: click to zoom in (scroll to click point), click to zoom out
   const handleZoomToggle = useCallback(
@@ -254,10 +258,19 @@ export function ImageViewer() {
 
   // Update announcement when image changes
   useEffect(() => {
-    if (!image) return;
+    if (!showImage || !image) {
+      setAnnouncement("");
+      return;
+    }
+
     const index = state.history.findIndex((img) => img.id === image.id);
+    if (index === -1) {
+      setAnnouncement("");
+      return;
+    }
+
     setAnnouncement(`Image ${index + 1} of ${state.history.length}`);
-  }, [image, state.history]);
+  }, [showImage, image, state.history]);
 
   // Swipe navigation handlers for mobile
   const handleSwipeLeft = useCallback(() => {
@@ -401,7 +414,7 @@ export function ImageViewer() {
           )}
 
           {/* Image Navigation Dots (Mobile only) */}
-          {isMobile && state.history.length > 1 && image && (
+          {isMobile && showImage && state.history.length > 1 && image && (
             <ImageNavDots
               total={state.history.length}
               current={state.history.findIndex((img) => img.id === image.id)}
