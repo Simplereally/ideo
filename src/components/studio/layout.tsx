@@ -56,7 +56,7 @@ export function StudioLayout() {
         <div className="relative flex flex-1 gap-2 overflow-hidden px-2 pb-2 pt-0 sm:gap-3 sm:px-3 sm:pb-3">
           {/* ---- Desktop: sidebars participate in flex flow ---- */}
           {/* Left Sidebar: History (desktop inline) */}
-          <div className="hidden lg:flex shrink-0">
+          <div className="hidden lg:flex shrink-0 h-full overflow-hidden">
             <HistoryPanel />
           </div>
 
@@ -116,7 +116,7 @@ export function StudioLayout() {
           </main>
 
           {/* Right Sidebar: Controls (desktop inline) */}
-          <div className="hidden lg:flex shrink-0">
+          <div className="hidden lg:flex shrink-0 h-full overflow-hidden">
             <GenerationControls />
           </div>
 

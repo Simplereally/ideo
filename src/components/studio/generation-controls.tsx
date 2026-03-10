@@ -721,7 +721,7 @@ function VideoParameters({
 
 function PanelHeader({ onClose }: { onClose: () => void }) {
   return (
-    <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-card z-10 shrink-0">
+    <div className="flex items-center justify-between px-6 py-4 bg-card z-10 shrink-0">
       <h2 className="text-[15px] font-semibold text-foreground tracking-tight">
         Settings
       </h2>
@@ -795,7 +795,7 @@ export function GenerationControls({ overlay }: { overlay?: boolean } = {}) {
 
   // -- Shared panel content --
   const panelContent = (
-    <div className="h-full flex flex-col bg-card rounded-3xl border border-border shadow-sm">
+    <div className="h-full flex flex-col bg-card rounded-3xl border border-border shadow-sm overflow-hidden">
       <PanelHeader onClose={toggleControls} />
 
       <div className="flex-1 overflow-hidden">

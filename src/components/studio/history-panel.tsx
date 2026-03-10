@@ -616,7 +616,7 @@ export function HistoryPanel({ overlay }: { overlay?: boolean } = {}) {
   }
 
   const panelContent = (
-    <div className="flex h-full flex-col rounded-3xl border border-border bg-card shadow-sm">
+    <div className="flex h-full flex-col rounded-3xl border border-border bg-card shadow-sm overflow-hidden">
       <div className="flex shrink-0 items-center justify-between px-6 py-4">
         <h2 className="text-sm font-semibold tracking-tight text-foreground">
           History
@@ -648,8 +648,8 @@ export function HistoryPanel({ overlay }: { overlay?: boolean } = {}) {
           <p className="text-sm font-medium text-foreground">No history</p>
         </div>
       ) : (
-        <div className="min-h-0 flex-1 px-4 pb-4">
-          <div className="px-2 pb-3">
+        <div className="min-h-0 flex-1 px-4 pb-4 flex flex-col">
+          <div className="px-2 pb-3 shrink-0">
             <ToggleGroup
               type="single"
               value={filter}
@@ -676,7 +676,7 @@ export function HistoryPanel({ overlay }: { overlay?: boolean } = {}) {
           </div>
 
           {!viewModel.hasVisibleItems && viewModel.emptyState ? (
-            <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center opacity-50">
+            <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center opacity-50">
               <Aperture className="size-10 text-foreground" strokeWidth={1} />
               <div className="space-y-1">
                 <p className="text-sm font-medium text-foreground">
@@ -688,7 +688,7 @@ export function HistoryPanel({ overlay }: { overlay?: boolean } = {}) {
               </div>
             </div>
           ) : (
-            <ScrollArea className="h-full ios-list">
+            <ScrollArea className="flex-1 ios-list min-h-0">
               <div className="flex flex-col">
                 {viewModel.sections.map((section) => (
                   <div key={section.id}>
