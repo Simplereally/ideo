@@ -106,9 +106,7 @@ function ActionIconButton({
     <button
       type="button"
       aria-label={label}
-      aria-hidden={!isVisible}
       title={label}
-      disabled={!isVisible}
       tabIndex={isVisible ? 0 : -1}
       onClick={(event) => {
         event.stopPropagation();
@@ -116,7 +114,6 @@ function ActionIconButton({
       }}
       className={cn(
         "flex size-6 items-center justify-center rounded-full bg-card shadow-sm border border-border transition-all",
-        !isVisible && "pointer-events-none",
         className,
       )}
     >
@@ -204,7 +201,7 @@ function HistoryItem({
         </div>
       </button>
 
-      <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 transition-all group-hover:opacity-100 group-focus-within:opacity-100">
+      <div className="pointer-events-none absolute top-2 right-2 flex items-center gap-1 opacity-0 transition-all group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
         <ActionIconButton
           label="Copy prompt"
           onClick={() => {
@@ -317,7 +314,7 @@ function VideoJobItem({
         </div>
       </button>
 
-      <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 transition-all group-hover:opacity-100 group-focus-within:opacity-100">
+      <div className="pointer-events-none absolute top-2 right-2 flex items-center gap-1 opacity-0 transition-all group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
         <ActionIconButton
           label="Copy prompt"
           onClick={() => {
@@ -435,7 +432,7 @@ function ImageJobItem({
         </div>
       </button>
 
-      <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 transition-all group-hover:opacity-100 group-focus-within:opacity-100">
+      <div className="pointer-events-none absolute top-2 right-2 flex items-center gap-1 opacity-0 transition-all group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
         <ActionIconButton
           label="Copy prompt"
           onClick={() => {
@@ -446,17 +443,6 @@ function ImageJobItem({
         >
           <Copy className="size-3" strokeWidth={2.5} />
         </ActionIconButton>
-
-        {canRetry && (
-          <ActionIconButton
-            label="Retry failed image generation"
-            onClick={onRetry}
-            isVisible={isVisible}
-            className="text-muted-foreground hover:text-primary hover:scale-105"
-          >
-            <RotateCcw className="size-3" strokeWidth={2.5} />
-          </ActionIconButton>
-        )}
 
         {isActive && (
           <ActionIconButton

@@ -276,7 +276,7 @@ export function GenerationActionsProvider({
 }: {
   children: ReactNode;
 }) {
-  const { state, completeGeneration, setPrompt } = useStudio();
+  const { state, completeGeneration } = useStudio();
   const [isSubmittingVideo, setIsSubmittingVideo] = useState(false);
 
   const addVideoJob = useVideoJobsStore((s) => s.addJob);
@@ -295,7 +295,7 @@ export function GenerationActionsProvider({
   const pollHandlesRef = useRef<Map<string, PollHandle>>(new Map());
   const imageAbortRef = useRef<Map<string, AbortController>>(new Map());
   const hasResumedImageJobs = useRef(false);
-  const isSubmittingVideoRef = useRef(false);
+  const pendingVideoSubmissionCountRef = useRef(0);
 
   const startPollingJob = useCallback(
     (jobId: string, provider: Provider) => {
@@ -450,7 +450,6 @@ export function GenerationActionsProvider({
       model,
       provider,
       params,
-      clearPrompt,
       selectNewJob,
       replaceJobId,
       successToastTitle,
@@ -458,7 +457,6 @@ export function GenerationActionsProvider({
       model: string;
       provider: VideoJob["provider"];
       params: VideoRequestParams;
-      clearPrompt: boolean;
       selectNewJob: boolean;
       replaceJobId?: string;
       successToastTitle: string;
@@ -468,7 +466,6 @@ export function GenerationActionsProvider({
 
       const prompt = params.prompt.trim();
       if (!prompt) return;
-      if (isSubmittingVideoRef.current) return;
 
       const timestamp = Date.now();
       const pendingJobId = crypto.randomUUID();
@@ -493,7 +490,7 @@ export function GenerationActionsProvider({
         selectVideoJob(pendingJobId);
       }
 
-      isSubmittingVideoRef.current = true;
+      pendingVideoSubmissionCountRef.current += 1;
       setIsSubmittingVideo(true);
 
       try {
@@ -514,6 +511,24 @@ export function GenerationActionsProvider({
           credentials,
         });
 
+        const latestPendingJob = useVideoJobsStore
+          .getState()
+          .jobs.find((job) => job.id === pendingJobId);
+        if (latestPendingJob?.status === "cancelled") {
+          replaceVideoJob(pendingJobId, {
+            id: createResult.id,
+            model,
+            provider,
+            prompt,
+            params: requestParams,
+            status: "cancelled",
+            createdAt: timestamp,
+            updatedAt: timestamp,
+            requestPending: false,
+          });
+          return;
+        }
+
         replaceVideoJob(pendingJobId, {
           id: createResult.id,
           model,
@@ -530,10 +545,6 @@ export function GenerationActionsProvider({
           selectVideoJob(createResult.id);
         }
 
-        if (clearPrompt) {
-          setPrompt("");
-        }
-
         if (createResult.status === "completed" && createResult.videoUrl) {
           markVideoJobCompleted(createResult.id, createResult.videoUrl);
           toast.success(successToastTitle, {
@@ -548,6 +559,13 @@ export function GenerationActionsProvider({
 
         startPollingJob(createResult.id, provider);
       } catch (error: unknown) {
+        const latestPendingJob = useVideoJobsStore
+          .getState()
+          .jobs.find((job) => job.id === pendingJobId);
+        if (latestPendingJob?.status === "cancelled") {
+          return;
+        }
+
         const message =
           error instanceof Error
             ? error.message
@@ -564,8 +582,11 @@ export function GenerationActionsProvider({
           });
         }
       } finally {
-        isSubmittingVideoRef.current = false;
-        setIsSubmittingVideo(false);
+        pendingVideoSubmissionCountRef.current = Math.max(
+          0,
+          pendingVideoSubmissionCountRef.current - 1,
+        );
+        setIsSubmittingVideo(pendingVideoSubmissionCountRef.current > 0);
       }
     },
     [
@@ -574,7 +595,6 @@ export function GenerationActionsProvider({
       markVideoJobError,
       replaceVideoJob,
       selectVideoJob,
-      setPrompt,
       startPollingJob,
     ],
   );
@@ -588,7 +608,6 @@ export function GenerationActionsProvider({
         model: state.model,
         provider: state.provider,
         params: videoParams,
-        clearPrompt: true,
         selectNewJob: true,
         successToastTitle: "Video generation submitted",
       });
@@ -625,7 +644,6 @@ export function GenerationActionsProvider({
         model: retryPayload.model,
         provider: retryPayload.provider,
         params: retryPayload.params,
-        clearPrompt: false,
         selectNewJob: true,
         replaceJobId: jobId,
         successToastTitle: "Video generation retried",

@@ -449,7 +449,7 @@ describe("HistoryPanel", () => {
       throw new Error("Expected saved image row to render");
     }
 
-    expect(within(imageRow).getByTitle("Copy prompt")).toBeDisabled();
+    expect(within(imageRow).getByTitle("Copy prompt")).toHaveAttribute("tabindex", "-1");
 
     await user.click(
       within(imageRow).getByRole("button", { name: /completed history image/i }),
@@ -457,7 +457,7 @@ describe("HistoryPanel", () => {
 
     expect(
       within(imageRow).getByRole("button", { name: /copy prompt/i }),
-    ).not.toBeDisabled();
+    ).toHaveAttribute("tabindex", "0");
   });
 
   describe("failed image job retry UX parity with video", () => {
@@ -686,9 +686,7 @@ describe("HistoryPanel", () => {
 
       expect(activeVideoRow).toBeInTheDocument();
 
-      await user.click(
-        within(activeVideoRow!).getByRole("button", { name: /active video prompt/i }),
-      );
+      await user.hover(activeVideoRow!);
 
       const cancelButton = within(activeVideoRow!).getByRole("button", {
         name: /cancel video generation/i,
@@ -724,9 +722,7 @@ describe("HistoryPanel", () => {
         .getByText("Active video prompt")
         .closest(".ios-list-item") as HTMLElement | null;
 
-      await user.click(
-        within(activeVideoRow!).getByRole("button", { name: /active video prompt/i }),
-      );
+      await user.hover(activeVideoRow!);
       await user.click(
         within(activeVideoRow!).getByRole("button", {
           name: /cancel video generation/i,

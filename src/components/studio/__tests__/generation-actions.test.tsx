@@ -279,6 +279,109 @@ describe("GenerationActionsProvider", () => {
     });
   });
 
+  it("allows multiple video submissions to queue while earlier create requests are still pending", async () => {
+    mocks.studioState.provider = "aiml" as const;
+    mocks.studioState.model = "aiml:klingai/video-v3-pro-text-to-video";
+    mocks.studioState.prompt = "A paper lantern drifting through fog";
+
+    let createCallCount = 0;
+    mocks.createVideoGeneration.mockImplementation(
+      () =>
+        new Promise<MockVideoCreateResult>((resolve) => {
+          createCallCount += 1;
+          const callNumber = createCallCount;
+          setTimeout(
+            () =>
+              resolve({
+                id: `video-created-${callNumber}`,
+                status: "queued",
+                videoUrl: null,
+                error: null,
+                meta: {},
+              }),
+            0,
+          );
+        }),
+    );
+
+    render(
+      <GenerationActionsProvider>
+        <Harness />
+      </GenerationActionsProvider>,
+    );
+
+    const user = userEvent.setup();
+    const generateButton = screen.getByRole("button", { name: /generate image/i });
+
+    await user.click(generateButton);
+    await user.click(generateButton);
+
+    expect(mocks.videoStoreState.addJob).toHaveBeenCalledTimes(2);
+
+    await waitFor(() => {
+      expect(mocks.createVideoGeneration).toHaveBeenCalledTimes(2);
+      expect(mocks.videoStoreState.replaceJob).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("keeps a queued video job cancelled when the create request resolves afterward", async () => {
+    mocks.studioState.provider = "aiml" as const;
+    mocks.studioState.model = "aiml:klingai/video-v3-pro-text-to-video";
+    mocks.studioState.prompt = "Cancel me before the provider accepts it";
+
+    let resolveCreate: ((value: MockVideoCreateResult) => void) | undefined;
+    mocks.createVideoGeneration.mockImplementation(
+      () =>
+        new Promise<MockVideoCreateResult>((resolve) => {
+          resolveCreate = resolve;
+        }),
+    );
+
+    render(
+      <GenerationActionsProvider>
+        <Harness />
+      </GenerationActionsProvider>,
+    );
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /generate image/i }));
+
+    const pendingJob = mocks.videoStoreState.addJob.mock.calls[0]?.[0];
+    if (!pendingJob || !resolveCreate) {
+      throw new Error("Expected a pending video job to be queued");
+    }
+
+    mocks.videoStoreState.jobs = [
+      {
+        ...pendingJob,
+        status: "cancelled",
+      },
+    ];
+
+    resolveCreate({
+      id: "video-created-cancelled",
+      status: "queued",
+      videoUrl: null,
+      error: null,
+      meta: {},
+    });
+
+    await waitFor(() => {
+      expect(mocks.videoStoreState.replaceJob).toHaveBeenCalledWith(
+        pendingJob.id,
+        expect.objectContaining({
+          id: "video-created-cancelled",
+          status: "cancelled",
+          requestPending: false,
+        }),
+      );
+    });
+
+    expect(mocks.pollVideoGeneration).not.toHaveBeenCalled();
+    expect(mocks.videoStoreState.markJobCompleted).not.toHaveBeenCalled();
+    expect(mocks.videoStoreState.markJobError).not.toHaveBeenCalled();
+  });
+
   it(
     "retries failed video jobs with the exact stored params and replaces the failed entry",
     { timeout: 15000 },
@@ -490,7 +593,7 @@ describe("GenerationActionsProvider", () => {
       "https://example.com/wan.mp4",
     );
     expect(mocks.pollVideoGeneration).not.toHaveBeenCalled();
-    expect(mocks.setPrompt).toHaveBeenCalledWith("");
+    expect(mocks.setPrompt).not.toHaveBeenCalled();
   });
 
   it("sends both the pasted and selected history image for Airforce Grok Imagine Video", async () => {
