@@ -148,6 +148,7 @@ const PendingCard = memo(function PendingCard({
       transition={CARD_TRANSITION}
       onClick={handleSelect}
       onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return;
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
           handleSelect();
@@ -211,6 +212,7 @@ const PendingCard = memo(function PendingCard({
       <button
         type="button"
         onClick={handleCancel}
+        onKeyDown={(e) => e.stopPropagation()}
         className={cn(
           "flex items-center justify-center size-[18px] rounded-md shrink-0",
           "text-muted-foreground/40",

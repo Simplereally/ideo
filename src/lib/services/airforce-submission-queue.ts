@@ -3,13 +3,14 @@ import { AirforceVideoError } from "@/lib/services/airforce-video";
 const PER_MINUTE_RATE_LIMIT_RE =
   /rate limit exceeded\s*\(1 request\(s\) per minute\).*?try again in\s+(\d{1,2})\s+seconds?/i;
 const TRY_AGAIN_SECONDS_RE = /try again in\s+(\d{1,2})\s+seconds?/i;
+const GLOBAL_RATE_LIMIT_DELAY_MS = 0;
 const RATE_LIMIT_BUFFER_MS = 250;
 const MIN_RETRY_SECONDS = 1;
 const MAX_RETRY_SECONDS = 60;
 const DEFAULT_MAX_IMMEDIATE_429_RETRIES = 2;
 
 export interface AirforceRetryDirective {
-  kind: "provider-wait" | "immediate-429";
+  kind: "provider-wait" | "immediate-429" | "global-rate-limit";
   delayMs: number;
   message: string;
 }
@@ -114,15 +115,35 @@ function getMessages(error: unknown): string[] {
   return uniqueStrings(collectStrings(error));
 }
 
+function findGlobalRateLimitMessage(messages: string[]): string | null {
+  for (let i = 0; i < messages.length; i++) {
+    if (messages[i].charCodeAt(0) === 71 /* 'G' */ && messages[i].startsWith("Global")) {
+      return messages[i];
+    }
+  }
+  return null;
+}
+
 export function extractAirforceRetryDirective(
   error: unknown,
 ): AirforceRetryDirective | null {
+  const messages = getMessages(error);
+
+  // Global rate limits are retriable regardless of HTTP status.
+  const globalMsg = findGlobalRateLimitMessage(messages);
+  if (globalMsg) {
+    return {
+      kind: "global-rate-limit",
+      delayMs: GLOBAL_RATE_LIMIT_DELAY_MS,
+      message: globalMsg,
+    };
+  }
+
   const { upstreamStatus } = getStatuses(error);
   if (upstreamStatus !== 429) {
     return null;
   }
 
-  const messages = getMessages(error);
   for (const message of messages) {
     const delayMs = parseRetryDelayMs(message);
     if (delayMs != null) {
@@ -195,7 +216,9 @@ export async function queueAirforceSubmission<T>(
           throw error;
         }
 
-        if (directive.kind === "immediate-429") {
+        if (directive.kind === "global-rate-limit") {
+          // Always retry instantly — never cap.
+        } else if (directive.kind === "immediate-429") {
           immediateRetryCount += 1;
           if (immediateRetryCount > (options.maxImmediate429Retries ?? DEFAULT_MAX_IMMEDIATE_429_RETRIES)) {
             throw error;

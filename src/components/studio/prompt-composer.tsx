@@ -9,7 +9,7 @@ import {
   useLayoutEffect,
   type ReactNode,
 } from "react";
-import { Check, ImagePlus, Ratio, Sparkles, X } from "lucide-react";
+import { Check, ImagePlus, Sparkles, X } from "lucide-react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -18,23 +18,39 @@ import { useStudio } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { getMaxPromptLength, getModelConfig, isVideoModel } from "@/lib/types";
 import { useGenerationActions } from "./generation-actions";
-import { PendingImageJobsStrip } from "./pending-image-jobs-strip";
-import { PendingVideoJobsStrip } from "./pending-video-jobs-strip";
 import { ModelCombobox } from "./model-combobox";
 import { AspectRatioCombobox } from "./aspect-ratio-combobox";
 import { BatchSizePopover } from "./batch-size-popover";
 import { MOBILE_BREAKPOINT } from "@/lib/constants";
+import { ratioLabel, ratioOrientation } from "@/lib/aspect-ratio-utils";
 import { uploadReferenceImage } from "@/lib/services/reference-image-upload";
 import { toast } from "sonner";
 
 const COLLAPSED_TEXTAREA_HEIGHT = 63;
 const MAX_TEXTAREA_HEIGHT = 240;
 
+function RatioIcon({ ratio, className }: { ratio: string; className?: string }) {
+  const orientation = ratioOrientation(ratio);
+
+  return (
+    <span
+      className={cn(
+        "inline-block rounded-[2px] border-[1.5px] border-current shrink-0",
+        orientation === "wide" && "w-[18px] h-[13px]",
+        orientation === "tall" && "w-[13px] h-[18px]",
+        orientation === "square" && "w-[15px] h-[15px]",
+        className,
+      )}
+    />
+  );
+}
+
 type VideoComposerControl = {
   key: string;
   label: string;
   value: string;
   options: string[];
+  displayLabel?: (option: string) => string;
   onSelect: (value: string) => void;
   icon: ReactNode;
 };
@@ -43,12 +59,14 @@ function ComposerOptionPopover({
   label,
   value,
   options,
+  displayLabel,
   onSelect,
   icon,
 }: {
   label: string;
   value: string;
   options: string[];
+  displayLabel?: (option: string) => string;
   onSelect: (value: string) => void;
   icon: ReactNode;
 }) {
@@ -71,14 +89,17 @@ function ComposerOptionPopover({
           aria-label={`${label}: ${value}`}
         >
           {icon}
-          <span className="text-foreground font-semibold">{value}</span>
+          <span className="text-foreground font-semibold">
+            {displayLabel ? `${displayLabel(value)} (${value})` : value}
+          </span>
         </button>
       </PopoverTrigger>
 
-      <PopoverContent align="start" className="w-48 p-1.5">
+      <PopoverContent align="start" className="w-52 p-1.5">
         <div className="flex flex-col gap-1">
           {options.map((option) => {
             const isSelected = option === value;
+            const optionLabel = displayLabel ? displayLabel(option) : option;
 
             return (
               <button
@@ -89,15 +110,20 @@ function ComposerOptionPopover({
                   setOpen(false);
                 }}
                 className={cn(
-                  "flex w-full items-center justify-between rounded-md px-3 py-2 text-left transition-colors",
+                  "flex w-full items-center justify-between rounded-md px-3 py-2.5 text-left transition-colors",
                   isSelected
                     ? "bg-accent text-accent-foreground"
                     : "text-foreground hover:bg-muted",
                 )}
               >
-                <div className="flex flex-col">
-                  <span className="text-sm font-medium">{option}</span>
-                  <span className="text-xs text-muted-foreground">{label}</span>
+                <div className="flex items-center gap-2.5">
+                  {displayLabel && (
+                    <RatioIcon ratio={option} className="opacity-60" />
+                  )}
+                  <div className="flex flex-col">
+                    <span className="text-sm font-medium">{optionLabel}</span>
+                    <span className="text-[10px] text-muted-foreground">{option}</span>
+                  </div>
                 </div>
                 <Check
                   className={cn(
@@ -160,8 +186,9 @@ export function PromptComposer() {
         label: "Ratio",
         value: state.videoAspectRatio,
         options: modelConfig.capabilities.videoAspectRatios,
+        displayLabel: ratioLabel,
         onSelect: setVideoAspectRatio,
-        icon: <Ratio className="size-4 opacity-50" />,
+        icon: <RatioIcon ratio={state.videoAspectRatio} className="opacity-50" />,
       });
     }
 
@@ -339,9 +366,6 @@ export function PromptComposer() {
         transition={{ type: "spring", stiffness: 190, damping: 24, mass: 0.9 }}
         className="flex w-full max-w-3xl flex-col gap-3"
       >
-        <PendingVideoJobsStrip />
-        <PendingImageJobsStrip />
-
         <motion.div
           layout
           transition={{ type: "spring", stiffness: 190, damping: 24, mass: 0.9 }}
@@ -521,6 +545,7 @@ export function PromptComposer() {
                     label={control.label}
                     value={control.value}
                     options={control.options}
+                    displayLabel={control.displayLabel}
                     onSelect={control.onSelect}
                     icon={control.icon}
                   />

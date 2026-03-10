@@ -306,9 +306,176 @@ What this proves:
 - xAI milky-way sample: benign landscape scene
 - Obama portrait: benign clothed portrait
 
+### Probe: exact user payload with landscape `aspectRatio` plus `size`
+
+Request:
+
+- prompt: `dark silhouette midnight ethereal celestial woman`
+- image: `https://anondrop.net/1480906243915649167/reference-1773145958571.jpg`
+- aspectRatio: `3:2`
+- size: `1280x720`
+
+Result:
+
+- Transport status `200`
+- SSE payload returned `{"error":"Provider error (400 Bad Request)"}`
+
+### Probe: same exact prompt + image, keep `aspectRatio`, omit `size`
+
+Request:
+
+- prompt: `dark silhouette midnight ethereal celestial woman`
+- image: `https://anondrop.net/1480906243915649167/reference-1773145958571.jpg`
+- aspectRatio: `3:2`
+- size: omitted
+
+Result:
+
+- Success
+- Returned video URL
+
+What this proves:
+
+- The exact same image URL, host, and prompt can succeed once `size` is removed
+- The earlier content/safety-only explanation is not sufficient for this case
+- `aspectRatio` itself is not the offending field here
+
+### Probe: same exact prompt + image, omit both `aspectRatio` and `size`
+
+Request:
+
+- prompt: `dark silhouette midnight ethereal celestial woman`
+- image: `https://anondrop.net/1480906243915649167/reference-1773145958571.jpg`
+- aspectRatio: omitted
+- size: omitted
+
+Result:
+
+- Transport status `200`
+- SSE payload returned `{"error":"Provider error (400 Bad Request)"}`
+
+What this proves:
+
+- Dropping `aspectRatio` is not a reliable fix for Grok image-to-video
+- For this image, `aspectRatio` helped, while `size` hurt
+
+### Probe: same exact prompt + image, switch to portrait `aspectRatio` and portrait `size`
+
+Reference image inspection:
+
+- image bytes: JPEG
+- dimensions: `784x1168` (portrait)
+
+Request:
+
+- prompt: `dark silhouette midnight ethereal celestial woman`
+- image: `https://anondrop.net/1480906243915649167/reference-1773145958571.jpg`
+- aspectRatio: `2:3`
+- size: `720x1280`
+
+Result:
+
+- Transport status `200`
+- SSE payload returned `{"error":"Provider error (400 Bad Request)"}`
+
+What this proves:
+
+- The failure is not explained only by sending a landscape output shape for a portrait source image
+- For this image, the presence of `size` still correlates with failure even when the requested output shape matches the source orientation better
+
+### Probe: control xAI sample, keep `aspectRatio`, omit `size`
+
+Request:
+
+- prompt: `gentle cinematic motion through a still night sky`
+- image: `https://docs.x.ai/assets/api-examples/video/milkyway-still.png`
+- aspectRatio: `3:2`
+- size: omitted
+
+Result:
+
+- Success
+- Returned video URL
+
+What this proves:
+
+- `aspectRatio` without `size` is a viable Grok image-to-video shape, not just a one-off fluke on the user image
+
+### Probe: exact R2-hosted request shape, keep `aspectRatio`, omit `size`
+
+Request:
+
+- prompt: `celestial beauty, shimmering otherwordly divine femininity`
+- image: `https://pub-1cbcf4561977402ea654a6fdc54f09db.r2.dev/703c7c45-6199-4422-b23e-569a8b7c9620.jpg`
+- aspectRatio: `3:2`
+- size: omitted
+
+Result:
+
+- Transport status `200`
+- SSE payload returned `{"error":"Provider error (400 Bad Request)"}`
+
+Reference image inspection:
+
+- image bytes: JPEG
+- dimensions: `784x1168` (portrait)
+
+### Probe: same exact image bytes on a different host
+
+Request:
+
+- prompt: `celestial beauty, shimmering otherwordly divine femininity`
+- image: `https://anondrop.net/1480916115017171015/rehosted.jpg`
+- aspectRatio: `3:2`
+- size: omitted
+
+Result:
+
+- Transport status `200`
+- SSE payload returned `{"error":"Provider error (400 Bad Request)"}`
+
+What this proves:
+
+- This failure is not explained by `r2.dev` hosting alone
+- Changing hosts does not rescue this exact prompt/image pairing
+
+### Probe: same exact image, benign prompt
+
+Request:
+
+- prompt: `a subtle portrait with gentle movement`
+- image: `https://anondrop.net/1480916115017171015/rehosted.jpg`
+- aspectRatio: `3:2`
+- size: omitted
+
+Result:
+
+- Success
+- Returned video URL
+
+### Probe: same exact prompt, control image
+
+Request:
+
+- prompt: `celestial beauty, shimmering otherwordly divine femininity`
+- image: `https://docs.x.ai/assets/api-examples/video/milkyway-still.png`
+- aspectRatio: `3:2`
+- size: omitted
+
+Result:
+
+- Success
+- Returned video URL
+
+What this proves:
+
+- The prompt alone is not the rejection cause
+- The image alone is not the rejection cause
+- The upstream rejection is triggered by the specific prompt/image combination
+
 ## Working Conclusion
 
-The failure is explained by a combination of two upstream constraints:
+The strongest current evidence points to four upstream constraints:
 
 1. Host acceptance is selective.
    Some direct image hosts/URLs that are fetchable from Ideo still fail upstream.
@@ -317,30 +484,34 @@ The failure is explained by a combination of two upstream constraints:
    - same bytes fail from Catbox
    - Wikimedia cat fails direct but succeeds after re-hosting to AnonDrop
 
-2. The specific failing reference image is being rejected on content/safety grounds by the upstream provider.
+2. `size` is a fragile field for Grok image-to-video.
    Evidence:
-   - the failing image remains rejected after:
-     - redirect resolution
-     - fresh AnonDrop re-upload
-     - Catbox re-host
-     - JPEG re-encode
-     - PNG re-encode
-     - exact portrait crop
-     - exact landscape crop
-     - small square PNG conversion
-   - safe controls succeed through the same general pipeline:
-     - xAI milky-way sample
-     - Wikimedia cat after accepted-host rehosting
-     - Obama portrait after accepted-host rehosting
-   - the failing image visually appears sexualized / NSFW-adjacent, which is consistent with an opaque upstream safety rejection surfaced only as `Provider error (400 Bad Request)`
+   - the exact same user image URL + exact same prompt failed with `size`
+   - the exact same user image URL + exact same prompt succeeded when `size` was removed and `aspectRatio` was kept
+   - omitting both `aspectRatio` and `size` failed, so the successful variant is not simply "drop all shape fields"
+   - a known-good xAI sample also succeeds with `aspectRatio` and no `size`
+
+3. Prompt/image interaction can trigger opaque safety rejection even when shape and hosting are otherwise acceptable.
+   Evidence:
+   - the exact failing R2 image still failed after being moved to a different public host
+   - the exact same image succeeded with a benign portrait-motion prompt
+   - the exact same prompt succeeded with the xAI control image
+
+4. Airforce still exposes too little detail to know the full validation rule set.
+   Evidence:
+   - provider-side failures are still surfaced only as opaque `400 Bad Request`
+    - some requests succeed with `size`, so `size` is not universally rejected
+    - some requests still fail for prompt/image moderation reasons independent of the JSON shape
 
 ## Current Leading Hypotheses
 
-1. Ideo should re-host Airforce Grok reference images to a stable accepted public host when possible
-2. Even after accepted-host rehosting, some images will still be rejected for upstream safety/content reasons
-3. Airforce does not expose enough error detail to distinguish host rejection from safety rejection without comparative probing
+1. Ideo should omit `size` for Grok image-to-video requests while still sending `aspectRatio`
+2. Some Grok image-to-video failures are pairwise prompt/image safety failures, not contract failures
+3. Host acceptance still matters in other cases, but is not the sole explanation for every rejected reference image
+4. Airforce does not expose enough error detail to distinguish shape rejection from prompt/image moderation without comparative probing
 
 ## Next Probes
 
-1. Restore public re-host normalization for Airforce Grok, but never fall back to localhost proxy URLs
-2. Improve user-facing error messaging for opaque provider-side `400` failures on image references
+1. Ship the safer Grok image-to-video request shape in Ideo: keep `aspectRatio`, omit `size` when `image_urls` are present
+2. Preserve `aspectRatio` when using selected-image reference flows in Ideo
+3. Improve user-facing error messaging for opaque provider-side `400` failures on image references

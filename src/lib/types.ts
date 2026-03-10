@@ -49,6 +49,8 @@ export interface ModelCapabilities {
   generateAudio?: boolean;
   /** Whether the model accepts a reference image URL */
   imageUrl?: boolean;
+  /** Maximum number of reference images the model accepts (default 1 when imageUrl is true) */
+  maxReferenceImages?: number;
   /** Whether the model accepts a reference audio URL */
   audioUrl?: boolean;
   /** Whether the model supports camera / shot-type selection */
@@ -124,6 +126,7 @@ export interface VideoRequestParams {
   enhancePrompt?: boolean;
   imageUrl?: string;
   imageUrls?: string[];
+  referenceImageUrls?: string[];
   audioUrl?: string;
   shotType?: VideoShotType;
   seed?: number;
@@ -665,6 +668,7 @@ export const MODELS: ModelConfig[] = [
       videoAspectRatios: ["2:3", "3:2"],
       resolutionOptions: ["480p", "720p", "1080p"],
       imageUrl: true,
+      maxReferenceImages: 2,
     },
   },
   {

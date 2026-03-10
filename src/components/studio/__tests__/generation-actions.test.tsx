@@ -41,6 +41,7 @@ const mocks = vi.hoisted(() => ({
     videoAspectRatio: "16:9",
     generateAudio: false,
     videoImageUrl: "",
+    useSelectedImageForVideo: false,
     videoAudioUrl: "",
     useSelectedImageAsVideoReference: false,
     videoShotType: "single" as const,
@@ -128,6 +129,7 @@ vi.mock("@/lib/store", () => ({
     setVideoAspectRatio: vi.fn(),
     setGenerateAudio: vi.fn(),
     setVideoImageUrl: vi.fn(),
+    setUseSelectedImageForVideo: vi.fn(),
     setVideoAudioUrl: vi.fn(),
     setUseSelectedImageAsVideoReference: vi.fn(),
     setVideoShotType: vi.fn(),
@@ -770,6 +772,56 @@ describe("GenerationActionsProvider", () => {
     mocks.studioState.videoImageUrl = "";
     mocks.studioState.useSelectedImageAsVideoReference = false;
     mocks.studioState.selectedImage = null;
+  });
+
+  it("uses the selected canvas image for Airforce Grok video when enabled", async () => {
+    mocks.studioState.provider = "airforce" as const;
+    mocks.studioState.model = "airforce:grok-imagine-video";
+    mocks.studioState.prompt = "Turn this still into a cinematic reveal";
+    mocks.studioState.videoAspectRatio = "3:2";
+    mocks.studioState.videoResolution = "720p";
+    mocks.studioState.useSelectedImageForVideo = true;
+    mocks.studioState.selectedImage = {
+      id: "image-1",
+      prompt: "A cinematic portrait",
+      imageUrl: "https://example.com/source-image.png",
+      aspectRatio: "1:1",
+      model: "google:imagen-4.0-generate-001",
+      provider: "google",
+      createdAt: Date.now(),
+    };
+
+    mocks.createVideoGeneration.mockResolvedValue({
+      id: "airforce-grok-video-1",
+      status: "completed",
+      videoUrl: "https://example.com/grok-video.mp4",
+      error: null,
+      meta: {},
+    });
+
+    render(
+      <GenerationActionsProvider>
+        <Harness />
+      </GenerationActionsProvider>,
+    );
+
+    await userEvent
+      .setup()
+      .click(screen.getByRole("button", { name: /generate image/i }));
+
+    await waitFor(() => {
+      expect(mocks.createVideoGeneration).toHaveBeenCalledWith({
+        provider: "airforce",
+        model: "grok-imagine-video",
+        params: expect.objectContaining({
+          prompt: "Turn this still into a cinematic reveal",
+          aspectRatio: "3:2",
+          resolution: "720p",
+          referenceImageUrls: ["https://example.com/source-image.png"],
+        }),
+        credentials: undefined,
+      });
+    });
   });
 
   it("forwards batch size and records every returned image for image generation", async () => {

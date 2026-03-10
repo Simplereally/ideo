@@ -119,27 +119,24 @@ describe("buildHistoryPanelViewModel", () => {
     expect(model.hasAnyItems).toBe(true);
     expect(model.hasVisibleItems).toBe(true);
     expect(model.sections.map((section) => section.id)).toEqual([
-      "active-images",
-      "active-videos",
       "failures",
       "completed-videos",
       "images",
     ]);
     expect(model.sections[0]?.items[0]).toMatchObject({
       kind: "image-job",
-      job: expect.objectContaining({ id: "image-active" }),
+      job: expect.objectContaining({ id: "image-failure" }),
     });
     expect(model.sections[1]?.items[0]).toMatchObject({
       kind: "video-job",
-      isSelected: true,
-      job: expect.objectContaining({ id: "video-active" }),
+      job: expect.objectContaining({ id: "video-complete" }),
     });
-    expect(model.sections[4]?.items[0]).toMatchObject({
+    expect(model.sections[2]?.items[0]).toMatchObject({
       kind: "saved-image",
       isSelected: true,
       image: expect.objectContaining({ id: "image-complete" }),
     });
-    expect(model.sections[4]?.showDivider).toBe(true);
+    expect(model.sections[2]?.showDivider).toBe(true);
   });
 
   it("returns only completed sections for the complete filter", () => {
@@ -216,6 +213,31 @@ describe("buildHistoryPanelViewModel", () => {
     expect(model.emptyState).toEqual({
       title: "No failures",
       description: "Failed or cancelled jobs will show up here.",
+    });
+  });
+
+  it("explains where active jobs went when the all filter has no history yet", () => {
+    const model = buildHistoryPanelViewModel({
+      filter: "all",
+      savedImages: [],
+      selectedImageId: null,
+      videoJobs: [
+        createVideoJob({
+          id: "video-active",
+          prompt: "Still generating",
+          status: "generating",
+        }),
+      ],
+      selectedVideoJobId: null,
+      imageJobs: [],
+      selectedImageJobId: null,
+    });
+
+    expect(model.hasAnyItems).toBe(true);
+    expect(model.hasVisibleItems).toBe(false);
+    expect(model.emptyState).toEqual({
+      title: "No history yet",
+      description: "Active jobs stay in Queue until they finish or fail.",
     });
   });
 
@@ -347,10 +369,7 @@ describe("buildHistoryPanelViewModel", () => {
 
       expect(model.hasAnyItems).toBe(true);
       expect(model.hasVisibleItems).toBe(true);
-      expect(model.sections.map((s) => s.id)).toEqual([
-        "active-videos",
-        "completed-videos",
-      ]);
+      expect(model.sections.map((s) => s.id)).toEqual(["completed-videos"]);
     });
 
     it("tracks selection state for completed video jobs", () => {

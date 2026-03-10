@@ -4,7 +4,9 @@ import { useState, useRef, useLayoutEffect, useMemo } from "react";
 import {
   Maximize2,
   Download,
+  Copy,
   Film,
+  X,
   XCircle,
   AlertCircle,
   RotateCcw,
@@ -24,6 +26,7 @@ import type { ImageJob } from "@/store/image-jobs";
 import { MODELS } from "@/lib/types";
 import type { VideoJob } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 import { useGenerationActions } from "./generation-actions";
 
 // ---------------------------------------------------------------------------
@@ -218,6 +221,112 @@ function ImageErrorState({
   );
 }
 
+function ImageCompletedState({
+  job,
+  onDownload,
+  onCopyPrompt,
+  onDismiss,
+}: {
+  job: ImageJob;
+  onDownload: () => void;
+  onCopyPrompt: () => void;
+  onDismiss: () => void;
+}) {
+  const [hover, setHover] = useState(false);
+
+  return (
+    <motion.div
+      key={`image-completed-${job.id}`}
+      initial={{ opacity: 0, scale: 0.95, filter: "blur(20px)" }}
+      animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+      exit={{ opacity: 0, scale: 0.95, filter: "blur(20px)" }}
+      transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+      className="relative flex h-full w-full items-center justify-center px-4 py-3 sm:px-6 sm:py-4"
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+    >
+      <div className="relative h-full w-full flex items-center justify-center">
+        <div
+          className={cn(
+            MEDIA_FRAME_CLASS_NAME,
+            "hover:shadow-[0_32px_64px_-12px_rgba(0,0,0,0.15)]"
+          )}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={job.resultUrl!}
+            alt={job.prompt}
+            className="block max-h-full max-w-full object-contain"
+          />
+        </div>
+
+        {/* Actions — always in the DOM for accessibility */}
+        <div
+          className={cn(
+            "absolute inset-x-0 top-0 flex items-start justify-end p-6 pointer-events-none",
+            "transition-opacity duration-200",
+            hover ? "opacity-100" : "opacity-0 focus-within:opacity-100"
+          )}
+        >
+          <div className="pointer-events-auto flex items-center gap-3">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="secondary"
+                  size="icon"
+                  className="size-10 rounded-full bg-card/90 text-foreground backdrop-blur-md hover:bg-card shadow-lg hover:scale-105 transition-all"
+                  onClick={onDownload}
+                  aria-label="Download image"
+                  title="Download image"
+                >
+                  <Download className="size-4" aria-hidden="true" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" sideOffset={8} className="text-xs font-medium">
+                Download image
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="secondary"
+                  size="icon"
+                  className="size-10 rounded-full bg-card/90 text-foreground backdrop-blur-md hover:bg-card shadow-lg hover:scale-105 transition-all"
+                  onClick={onCopyPrompt}
+                  aria-label="Copy prompt"
+                  title="Copy prompt"
+                >
+                  <Copy className="size-4" aria-hidden="true" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" sideOffset={8} className="text-xs font-medium">
+                Copy prompt
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="secondary"
+                  size="icon"
+                  className="size-10 rounded-full bg-card/90 text-foreground backdrop-blur-md hover:bg-card shadow-lg hover:scale-105 transition-all"
+                  onClick={onDismiss}
+                  aria-label="Dismiss"
+                  title="Dismiss"
+                >
+                  <X className="size-4" aria-hidden="true" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" sideOffset={8} className="text-xs font-medium">
+                Dismiss
+              </TooltipContent>
+            </Tooltip>
+          </div>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
 function VideoCancelledState({ onDismiss }: { onDismiss: () => void }) {
   return (
     <motion.div
@@ -403,8 +512,9 @@ export function StudioCanvas() {
     : null;
 
   // Get first active image job for processing state (when no specific job selected)
+  // Include "completed" so completed jobs can be surfaced when selected
   const activeImageJob = useMemo(
-    () => imageJobs.find((j) => j.status === "queued" || j.status === "generating"),
+    () => imageJobs.find((j) => j.status === "queued" || j.status === "generating" || j.status === "completed"),
     [imageJobs],
   );
 
@@ -413,11 +523,32 @@ export function StudioCanvas() {
   const showVideo = !!selectedVideoJob;
   const showImageJob = !!selectedImageJob;
 
+  async function handleCopyPrompt(prompt: string) {
+    try {
+      await navigator.clipboard.writeText(prompt);
+      toast.success("Prompt copied");
+    } catch {
+      toast.error("Failed to copy prompt");
+    }
+  }
+
   function handleImageDownload() {
     if (!selectedImage) return;
     const link = document.createElement("a");
     link.href = selectedImage.imageUrl;
     link.download = `ideo-${selectedImage.id}.png`;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+
+  function handleImageJobDownload() {
+    if (!selectedImageJob?.resultUrl) return;
+    const link = document.createElement("a");
+    link.href = selectedImageJob.resultUrl;
+    link.download = `ideo-image-${selectedImageJob.id}.png`;
     link.target = "_blank";
     link.rel = "noopener noreferrer";
     document.body.appendChild(link);
@@ -470,8 +601,8 @@ export function StudioCanvas() {
   }
 
   function handleImageMouseLeave(e: React.MouseEvent<HTMLImageElement>) {
-    const nextTarget = e.relatedTarget as Node | null;
-    if (nextTarget && imageControlsRef.current?.contains(nextTarget)) return;
+    const nextTarget = e.relatedTarget;
+    if (nextTarget instanceof Node && imageControlsRef.current?.contains(nextTarget)) return;
     setShowImageControls(false);
   }
 
@@ -480,8 +611,8 @@ export function StudioCanvas() {
   }
 
   function handleImageControlsMouseLeave(e: React.MouseEvent<HTMLDivElement>) {
-    const nextTarget = e.relatedTarget as Node | null;
-    if (nextTarget && imagePreviewRef.current?.contains(nextTarget)) return;
+    const nextTarget = e.relatedTarget;
+    if (nextTarget instanceof Node && imagePreviewRef.current?.contains(nextTarget)) return;
     setShowImageControls(false);
   }
 
@@ -513,6 +644,18 @@ export function StudioCanvas() {
             onDismiss={handleImageJobDismiss}
           />
         )}
+
+        {/* ---- Selected Image Job: completed ---- */}
+        {selectedImageJob &&
+          selectedImageJob.status === "completed" &&
+          selectedImageJob.resultUrl && (
+            <ImageCompletedState
+              job={selectedImageJob}
+              onDownload={handleImageJobDownload}
+              onCopyPrompt={() => void handleCopyPrompt(selectedImageJob.prompt)}
+              onDismiss={handleImageJobDismiss}
+            />
+          )}
 
         {/* ---- Selected Video Job: processing ---- */}
         {selectedVideoJob &&
@@ -641,6 +784,23 @@ export function StudioCanvas() {
                     </TooltipTrigger>
                     <TooltipContent side="top" sideOffset={8} className="text-xs font-medium">
                       Download image
+                    </TooltipContent>
+                  </Tooltip>
+
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="secondary"
+                        size="icon"
+                        className="size-10 rounded-full bg-card/90 text-foreground backdrop-blur-md hover:bg-card shadow-lg hover:scale-105 transition-all"
+                        onClick={() => handleCopyPrompt(selectedImage.prompt)}
+                        aria-label="Copy prompt"
+                      >
+                        <Copy className="size-4" aria-hidden="true" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" sideOffset={8} className="text-xs font-medium">
+                      Copy prompt
                     </TooltipContent>
                   </Tooltip>
                 </div>

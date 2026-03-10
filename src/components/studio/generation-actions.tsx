@@ -38,6 +38,8 @@ import type {
   ImageGenerationResponse,
 } from "@/lib/types/generation";
 import { validateImageGenerationResponse } from "@/lib/types/generation";
+import { getSelectedCanvasImageSource } from "@/lib/canvas-selection";
+import { applyVideoReferenceImagesToParams } from "@/lib/video-reference-images";
 
 const MAX_IMAGE_JOB_ATTEMPTS = 2;
 
@@ -49,6 +51,7 @@ function buildReferenceImageUrls(state: StudioState): {
     new Set(
       [
         state.videoImageUrl || undefined,
+        state.videoImageUrl2 || undefined,
         state.useSelectedImageAsVideoReference
           ? state.selectedImage?.imageUrl
           : undefined,
@@ -139,7 +142,10 @@ interface GenerationActionsContextValue {
 const GenerationActionsContext =
   createContext<GenerationActionsContextValue | null>(null);
 
-function buildVideoParamsFromState(state: StudioState): VideoRequestParams | null {
+function buildVideoParamsFromState(
+  state: StudioState,
+  selectedCanvasImageUrl: string | null,
+): VideoRequestParams | null {
   const modelConfig = getModelConfig(state.model);
   if (!modelConfig || modelConfig.kind !== "video") return null;
 
@@ -184,6 +190,10 @@ function buildVideoParamsFromState(state: StudioState): VideoRequestParams | nul
   }
   if (caps.seed && state.seed) {
     params.seed = parseInt(state.seed, 10);
+  }
+
+  if (state.useSelectedImageForVideo && selectedCanvasImageUrl) {
+    return applyVideoReferenceImagesToParams(state.model, params, [selectedCanvasImageUrl]);
   }
 
   return params;
@@ -697,15 +707,13 @@ export function GenerationActionsProvider({
         }
 
         const message =
-          error instanceof Error
-            ? error.message
-            : "Failed to start video generation";
+          (error instanceof Error && error.message) ||
+          "Failed to start video generation";
         markVideoJobError(pendingJobId, message);
         toast.error(message);
 
         if (error instanceof AirforceVideoError) {
-          console.error("[AirforceVideoError]", {
-            message: error.message,
+          console.error("[AirforceVideoError]", message, {
             httpStatus: error.httpStatus,
             diagnostics: error.diagnostics,
             raw: error.raw,
@@ -733,7 +741,17 @@ export function GenerationActionsProvider({
   const generateFromCurrentState = useCallback(async () => {
     if (!state.prompt.trim()) return;
 
-    const videoParams = buildVideoParamsFromState(state);
+    const selectedCanvasImage = getSelectedCanvasImageSource({
+      selectedImage: state.selectedImage,
+      selectedVideoJobId: useVideoJobsStore.getState().selectedJobId,
+      imageJobs: useImageJobsStore.getState().jobs,
+      selectedImageJobId: useImageJobsStore.getState().selectedJobId,
+    });
+
+    const videoParams = buildVideoParamsFromState(
+      state,
+      selectedCanvasImage?.url ?? null,
+    );
     if (videoParams) {
       await submitVideoJob({
         model: state.model,

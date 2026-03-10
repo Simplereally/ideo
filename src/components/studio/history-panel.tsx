@@ -503,11 +503,11 @@ const PANEL_TRANSITION = {
 };
 
 export function HistoryPanel({ overlay }: { overlay?: boolean } = {}) {
-  const { state, selectImage, removeImage, clearHistory, toggleHistory } =
+  const { state, selectImage, removeImage, toggleHistory } =
     useStudio();
   const { retryImageJob, retryVideoJob } = useGenerationActions();
   const isMobile = useIsMobile();
-  const [filter, setFilter] = useState<HistoryFilter>("all");
+  const [filter, setFilter] = useState<HistoryFilter>("complete");
   const [savedImagePages, setSavedImagePages] = useState(1);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(0);
@@ -536,18 +536,11 @@ export function HistoryPanel({ overlay }: { overlay?: boolean } = {}) {
   const selectVideoJob = useVideoJobsStore((store) => store.selectJob);
   const removeVideoJob = useVideoJobsStore((store) => store.removeJob);
   const cancelVideoJob = useVideoJobsStore((store) => store.cancelJobLocal);
-  const clearTerminalVideoJobs = useVideoJobsStore(
-    (store) => store.clearTerminalJobs,
-  );
-
   const imageJobs = useImageJobsStore((store) => store.jobs);
   const selectedImageJobId = useImageJobsStore((store) => store.selectedJobId);
   const selectImageJob = useImageJobsStore((store) => store.selectJob);
   const cancelImageJob = useImageJobsStore((store) => store.cancelJobLocal);
   const removeImageJob = useImageJobsStore((store) => store.removeJob);
-  const clearTerminalImageJobs = useImageJobsStore(
-    (store) => store.clearTerminalJobs,
-  );
 
   const viewModel = buildHistoryPanelViewModel({
     filter,
@@ -662,12 +655,6 @@ export function HistoryPanel({ overlay }: { overlay?: boolean } = {}) {
     closeOverlayAfterSelection();
   }
 
-  function handleClearAll() {
-    clearHistory();
-    clearTerminalVideoJobs();
-    clearTerminalImageJobs();
-  }
-
   function renderSectionItem(item: HistoryPanelItem) {
     switch (item.kind) {
       case "saved-image":
@@ -718,15 +705,6 @@ export function HistoryPanel({ overlay }: { overlay?: boolean } = {}) {
           History
         </h2>
         <div className="flex items-center gap-3">
-          {viewModel.hasAnyItems && (
-            <button
-              type="button"
-              onClick={handleClearAll}
-              className="text-[11px] font-semibold text-primary hover:text-primary/80"
-            >
-              Clear All
-            </button>
-          )}
           <button
             type="button"
             onClick={toggleHistory}

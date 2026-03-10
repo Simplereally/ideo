@@ -52,6 +52,8 @@ export interface StudioState {
   videoAspectRatio: string;
   generateAudio: boolean;
   videoImageUrl: string;
+  videoImageUrl2: string;
+  useSelectedImageForVideo: boolean;
   videoAudioUrl: string;
   useSelectedImageAsVideoReference: boolean;
   videoShotType: VideoShotType;
@@ -63,6 +65,7 @@ export interface StudioState {
   selectedImage: GeneratedImage | null;
   // UI toggles
   isHistoryOpen: boolean;
+  isQueueOpen: boolean;
   isControlsOpen: boolean;
   isApiKeyDialogOpen: boolean;
   isImageViewerOpen: boolean;
@@ -88,6 +91,8 @@ export const initialState: StudioState = {
   videoAspectRatio: "16:9",
   generateAudio: false,
   videoImageUrl: "",
+  videoImageUrl2: "",
+  useSelectedImageForVideo: false,
   videoAudioUrl: "",
   useSelectedImageAsVideoReference: false,
   videoShotType: "single",
@@ -97,6 +102,7 @@ export const initialState: StudioState = {
   history: [],
   selectedImage: null,
   isHistoryOpen: false,
+  isQueueOpen: false,
   isControlsOpen: false,
   isApiKeyDialogOpen: false,
   isImageViewerOpen: false,
@@ -126,6 +132,8 @@ export type StudioAction =
   | { type: "SET_VIDEO_ASPECT_RATIO"; payload: string }
   | { type: "SET_GENERATE_AUDIO"; payload: boolean }
   | { type: "SET_VIDEO_IMAGE_URL"; payload: string }
+  | { type: "SET_VIDEO_IMAGE_URL_2"; payload: string }
+  | { type: "SET_USE_SELECTED_IMAGE_FOR_VIDEO"; payload: boolean }
   | { type: "SET_VIDEO_AUDIO_URL"; payload: string }
   | { type: "SET_USE_SELECTED_IMAGE_AS_VIDEO_REFERENCE"; payload: boolean }
   | { type: "SET_VIDEO_SHOT_TYPE"; payload: VideoShotType }
@@ -137,6 +145,7 @@ export type StudioAction =
   | { type: "REMOVE_IMAGE"; payload: string }
   | { type: "CLEAR_HISTORY" }
   | { type: "TOGGLE_HISTORY" }
+  | { type: "TOGGLE_QUEUE" }
   | { type: "TOGGLE_CONTROLS" }
   | { type: "SET_API_KEY_DIALOG"; payload: boolean }
   | { type: "SET_IMAGE_VIEWER"; payload: boolean }
@@ -271,6 +280,8 @@ export function applyModelDefaults(
     overrides.videoAspectRatio = caps?.videoAspectRatios?.[0] ?? initialState.videoAspectRatio;
     overrides.generateAudio = false;
     overrides.videoImageUrl = "";
+    overrides.videoImageUrl2 = "";
+    overrides.useSelectedImageForVideo = false;
     overrides.videoAudioUrl = "";
     overrides.useSelectedImageAsVideoReference = false;
     overrides.videoShotType = "single";
@@ -360,6 +371,10 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
       return { ...state, generateAudio: action.payload };
     case "SET_VIDEO_IMAGE_URL":
       return { ...state, videoImageUrl: action.payload };
+    case "SET_VIDEO_IMAGE_URL_2":
+      return { ...state, videoImageUrl2: action.payload };
+    case "SET_USE_SELECTED_IMAGE_FOR_VIDEO":
+      return { ...state, useSelectedImageForVideo: action.payload };
     case "SET_VIDEO_AUDIO_URL":
       return { ...state, videoAudioUrl: action.payload };
     case "SET_USE_SELECTED_IMAGE_AS_VIDEO_REFERENCE":
@@ -404,6 +419,8 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
       };
     case "TOGGLE_HISTORY":
       return { ...state, isHistoryOpen: !state.isHistoryOpen };
+    case "TOGGLE_QUEUE":
+      return { ...state, isQueueOpen: !state.isQueueOpen };
     case "TOGGLE_CONTROLS":
       return { ...state, isControlsOpen: !state.isControlsOpen };
     case "SET_API_KEY_DIALOG":
@@ -448,6 +465,8 @@ interface StudioContextValue {
   setVideoAspectRatio: (r: string) => void;
   setGenerateAudio: (enabled: boolean) => void;
   setVideoImageUrl: (url: string) => void;
+  setVideoImageUrl2: (url: string) => void;
+  setUseSelectedImageForVideo: (enabled: boolean) => void;
   setVideoAudioUrl: (url: string) => void;
   setUseSelectedImageAsVideoReference: (enabled: boolean) => void;
   setVideoShotType: (t: VideoShotType) => void;
@@ -459,6 +478,7 @@ interface StudioContextValue {
   removeImage: (id: string) => void;
   clearHistory: () => void;
   toggleHistory: () => void;
+  toggleQueue: () => void;
   toggleControls: () => void;
   openApiKeyDialog: () => void;
   closeApiKeyDialog: () => void;
@@ -607,6 +627,15 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     (url: string) => dispatch({ type: "SET_VIDEO_IMAGE_URL", payload: url }),
     [],
   );
+  const setVideoImageUrl2 = useCallback(
+    (url: string) => dispatch({ type: "SET_VIDEO_IMAGE_URL_2", payload: url }),
+    [],
+  );
+  const setUseSelectedImageForVideo = useCallback(
+    (enabled: boolean) =>
+      dispatch({ type: "SET_USE_SELECTED_IMAGE_FOR_VIDEO", payload: enabled }),
+    [],
+  );
   const setVideoAudioUrl = useCallback(
     (url: string) => dispatch({ type: "SET_VIDEO_AUDIO_URL", payload: url }),
     [],
@@ -649,6 +678,10 @@ export function StudioProvider({ children }: { children: ReactNode }) {
   );
   const toggleHistory = useCallback(
     () => dispatch({ type: "TOGGLE_HISTORY" }),
+    [],
+  );
+  const toggleQueue = useCallback(
+    () => dispatch({ type: "TOGGLE_QUEUE" }),
     [],
   );
   const toggleControls = useCallback(
@@ -699,6 +732,8 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     setVideoAspectRatio,
     setGenerateAudio,
     setVideoImageUrl,
+    setVideoImageUrl2,
+    setUseSelectedImageForVideo,
     setVideoAudioUrl,
     setUseSelectedImageAsVideoReference,
     setVideoShotType,
@@ -709,6 +744,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     removeImage,
     clearHistory,
     toggleHistory,
+    toggleQueue,
     toggleControls,
     openApiKeyDialog,
     closeApiKeyDialog,

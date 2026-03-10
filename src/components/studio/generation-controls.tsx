@@ -22,8 +22,13 @@ import {
   type ModelCapabilities,
   type VideoShotType,
 } from "@/lib/types";
+import { ratioLabel, ratioOrientation } from "@/lib/aspect-ratio-utils";
 import { ProviderDropdown } from "@/components/studio/provider-dropdown";
 import { ModelDropdown } from "@/components/studio/model-dropdown";
+import { useVideoJobsStore } from "@/store/video-jobs";
+import { useImageJobsStore } from "@/store/image-jobs";
+import { getSelectedCanvasImageSource } from "@/lib/canvas-selection";
+import { getVideoReferenceImageInputConfig } from "@/lib/video-reference-images";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -148,7 +153,47 @@ function SegmentedControl<T extends string | number>({
 }
 
 // ---------------------------------------------------------------------------
-// Presentational: Aspect Ratio Selector
+// Presentational: Shared Aspect Ratio Card
+// ---------------------------------------------------------------------------
+
+function RatioCard({
+  ratio,
+  isSelected,
+  onClick,
+}: {
+  ratio: string;
+  isSelected: boolean;
+  onClick: () => void;
+}) {
+  const orientation = ratioOrientation(ratio);
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "flex flex-col items-center justify-between rounded-xl pt-5 pb-3 transition-all",
+        isSelected
+          ? "bg-primary text-primary-foreground shadow-md"
+          : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground",
+      )}
+    >
+      <div
+        className={cn(
+          "rounded-sm border-2 mb-3",
+          isSelected ? "border-primary-foreground/70" : "border-current opacity-50",
+          orientation === "wide" && "h-7 w-10",
+          orientation === "tall" && "h-10 w-7",
+          orientation === "square" && "h-8 w-8",
+        )}
+      />
+      <span className="font-sans text-[11px] font-medium">{ratioLabel(ratio)}</span>
+      <span className={cn("font-sans text-[10px] mt-0.5", isSelected ? "opacity-70" : "opacity-50")}>{ratio}</span>
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Presentational: Aspect Ratio Selector (image models)
 // ---------------------------------------------------------------------------
 
 function AspectRatioSelector({
@@ -162,25 +207,14 @@ function AspectRatioSelector({
     <section className="space-y-4">
       <SectionLabel>Aspect Ratio</SectionLabel>
       <div className="grid grid-cols-3 gap-2 px-2">
-        {ASPECT_RATIOS.map((ar) => {
-          const isSelected = value === ar.value;
-          return (
-            <button
-              key={ar.value}
-              type="button"
-              onClick={() => onChange(ar.value)}
-              className={cn(
-                "flex flex-col items-center justify-center gap-1.5 rounded-xl py-3.5 transition-all",
-                isSelected
-                  ? "bg-primary text-primary-foreground shadow-md"
-                  : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground",
-              )}
-            >
-              <span className="text-lg leading-none opacity-80">{ar.icon}</span>
-              <span className="font-sans text-[11px] font-medium">{ar.value}</span>
-            </button>
-          );
-        })}
+        {ASPECT_RATIOS.map((ar) => (
+          <RatioCard
+            key={ar.value}
+            ratio={ar.value}
+            isSelected={value === ar.value}
+            onClick={() => onChange(ar.value)}
+          />
+        ))}
       </div>
     </section>
   );
@@ -449,6 +483,9 @@ interface VideoParametersProps {
   videoAspectRatio: string;
   generateAudio: boolean;
   videoImageUrl: string;
+  videoImageUrl2: string;
+  useSelectedImageForVideo: boolean;
+  selectedCanvasImageUrl: string | null;
   videoAudioUrl: string;
   videoShotType: VideoShotType;
   negativePrompt: string;
@@ -460,6 +497,8 @@ interface VideoParametersProps {
   onVideoAspectRatioChange: (v: string) => void;
   onGenerateAudioChange: (v: boolean) => void;
   onVideoImageUrlChange: (v: string) => void;
+  onVideoImageUrl2Change: (v: string) => void;
+  onUseSelectedImageForVideoChange: (v: boolean) => void;
   onVideoAudioUrlChange: (v: string) => void;
   onVideoShotTypeChange: (v: VideoShotType) => void;
   onNegativePromptChange: (v: string) => void;
@@ -477,36 +516,18 @@ function VideoAspectRatioSelector({
   value: string;
   onChange: (v: string) => void;
 }) {
-  const iconForRatio = (r: string) => {
-    if (r === "1:1") return "\u25A1"; // □
-    if (r === "16:9" || r === "4:3") return "\u25AD"; // ▭
-    if (r === "9:16" || r === "3:4") return "\u25AF"; // ▯
-    return "\u25A1";
-  };
-
   return (
     <section className="space-y-4">
       <SectionLabel>Aspect Ratio</SectionLabel>
-      <div className="grid grid-cols-3 gap-2 px-2">
-        {options.map((ratio) => {
-          const isSelected = value === ratio;
-          return (
-            <button
-              key={ratio}
-              type="button"
-              onClick={() => onChange(ratio)}
-              className={cn(
-                "flex flex-col items-center justify-center gap-1.5 rounded-xl py-3.5 transition-all",
-                isSelected
-                  ? "bg-primary text-primary-foreground shadow-md"
-                  : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground",
-              )}
-            >
-              <span className="text-lg leading-none opacity-80">{iconForRatio(ratio)}</span>
-              <span className="font-sans text-[11px] font-medium">{ratio}</span>
-            </button>
-          );
-        })}
+      <div className={cn("grid gap-2 px-2", options.length <= 2 ? "grid-cols-2" : "grid-cols-3")}>
+        {options.map((ratio) => (
+          <RatioCard
+            key={ratio}
+            ratio={ratio}
+            isSelected={value === ratio}
+            onClick={() => onChange(ratio)}
+          />
+        ))}
       </div>
     </section>
   );
@@ -519,6 +540,9 @@ function VideoParameters({
   videoAspectRatio,
   generateAudio,
   videoImageUrl,
+  videoImageUrl2,
+  useSelectedImageForVideo,
+  selectedCanvasImageUrl,
   videoAudioUrl,
   videoShotType,
   negativePrompt,
@@ -529,6 +553,8 @@ function VideoParameters({
   onVideoAspectRatioChange,
   onGenerateAudioChange,
   onVideoImageUrlChange,
+  onVideoImageUrl2Change,
+  onUseSelectedImageForVideoChange,
   onVideoAudioUrlChange,
   onVideoShotTypeChange,
   onNegativePromptChange,
@@ -545,9 +571,19 @@ function VideoParameters({
   const hasNegativePrompt = !!caps?.negativePrompt;
   const hasSeed = !!caps?.seed;
   const hasEnhancePrompt = !!caps?.enhancePrompt;
+  const hasSelectedCanvasImageToggle = selectedCanvasImageUrl !== null;
 
   const hasAnyControl =
-    hasDuration || hasResolution || hasAudio || hasImageUrl || hasAudioUrl || hasShotType || hasNegativePrompt || hasSeed || hasEnhancePrompt;
+    hasDuration ||
+    hasResolution ||
+    hasAudio ||
+    hasImageUrl ||
+    hasSelectedCanvasImageToggle ||
+    hasAudioUrl ||
+    hasShotType ||
+    hasNegativePrompt ||
+    hasSeed ||
+    hasEnhancePrompt;
 
   return (
     <section className="space-y-6">
@@ -605,21 +641,57 @@ function VideoParameters({
         </div>
       )}
 
-      {/* Reference Image URL */}
-      {hasImageUrl && (
+      {hasSelectedCanvasImageToggle && (
+        <div className="space-y-3 px-2">
+          <ToggleField
+            label="Use Selected Canvas Image"
+            checked={useSelectedImageForVideo}
+            onCheckedChange={onUseSelectedImageForVideoChange}
+          />
+
+          {useSelectedImageForVideo && selectedCanvasImageUrl && (
+            <div className="rounded-xl border border-border bg-muted/60 px-3.5 py-3">
+              <p className="text-xs font-semibold text-foreground">
+                Using the current canvas image as the video reference.
+              </p>
+              <p className="mt-1 truncate text-[11px] text-muted-foreground">
+                {selectedCanvasImageUrl}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Reference Image URLs */}
+      {hasImageUrl && !useSelectedImageForVideo && (
         <div className="space-y-2 px-2">
           <div className="flex items-center gap-1.5">
             <ImageIcon className="size-3 text-muted-foreground" strokeWidth={2.5} />
-            <span className="text-xs font-semibold text-foreground">Reference Image URL</span>
+            <span className="text-xs font-semibold text-foreground">
+              Reference Image{(caps?.maxReferenceImages ?? 1) > 1 ? "s" : ""}
+            </span>
           </div>
-          <div className="animated-underline">
-            <input
-              type="url"
-              value={videoImageUrl}
-              onChange={(e) => onVideoImageUrlChange(e.target.value)}
-              placeholder="https://..."
-              className="w-full rounded-xl border border-border bg-input px-3.5 py-2.5 text-base text-foreground placeholder:text-muted-foreground focus:outline-none focus:bg-muted md:text-sm"
-            />
+          <div className="space-y-2">
+            <div className="animated-underline">
+              <input
+                type="url"
+                value={videoImageUrl}
+                onChange={(e) => onVideoImageUrlChange(e.target.value)}
+                placeholder="https://..."
+                className="w-full rounded-xl border border-border bg-input px-3.5 py-2.5 text-base text-foreground placeholder:text-muted-foreground focus:outline-none focus:bg-muted md:text-sm"
+              />
+            </div>
+            {(caps?.maxReferenceImages ?? 1) >= 2 && (
+              <div className="animated-underline">
+                <input
+                  type="url"
+                  value={videoImageUrl2}
+                  onChange={(e) => onVideoImageUrl2Change(e.target.value)}
+                  placeholder="Second image (optional)"
+                  className="w-full rounded-xl border border-border bg-input px-3.5 py-2.5 text-base text-foreground placeholder:text-muted-foreground focus:outline-none focus:bg-muted md:text-sm"
+                />
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -778,6 +850,8 @@ export function GenerationControls({ overlay }: { overlay?: boolean } = {}) {
     setVideoAspectRatio,
     setGenerateAudio,
     setVideoImageUrl,
+    setVideoImageUrl2,
+    setUseSelectedImageForVideo,
     setVideoAudioUrl,
     setVideoShotType,
     toggleControls,
@@ -790,6 +864,34 @@ export function GenerationControls({ overlay }: { overlay?: boolean } = {}) {
   const caps = modelConfig?.capabilities;
   const isVideo = modelConfig?.kind === "video";
   const hasAdvanced = useHasAdvancedControls(caps);
+  const selectedVideoJobId = useVideoJobsStore((s) => s.selectedJobId);
+  const selectedImageJobId = useImageJobsStore((s) => s.selectedJobId);
+  const imageJobs = useImageJobsStore((s) => s.jobs);
+
+  const selectedCanvasImage = useMemo(
+    () =>
+      getSelectedCanvasImageSource({
+        selectedImage: state.selectedImage,
+        selectedVideoJobId,
+        imageJobs,
+        selectedImageJobId,
+      }),
+    [imageJobs, selectedImageJobId, selectedVideoJobId, state.selectedImage],
+  );
+
+  const videoReferenceImageConfig = useMemo(
+    () => getVideoReferenceImageInputConfig(state.model),
+    [state.model],
+  );
+
+  const canUseSelectedCanvasImage =
+    isVideo && videoReferenceImageConfig !== null && selectedCanvasImage !== null;
+
+  useEffect(() => {
+    if (state.useSelectedImageForVideo && !canUseSelectedCanvasImage) {
+      setUseSelectedImageForVideo(false);
+    }
+  }, [canUseSelectedCanvasImage, setUseSelectedImageForVideo, state.useSelectedImageForVideo]);
 
   if (!mounted) return null;
 
@@ -847,6 +949,11 @@ export function GenerationControls({ overlay }: { overlay?: boolean } = {}) {
                   videoAspectRatio={state.videoAspectRatio}
                   generateAudio={state.generateAudio}
                   videoImageUrl={state.videoImageUrl}
+                  videoImageUrl2={state.videoImageUrl2}
+                  useSelectedImageForVideo={state.useSelectedImageForVideo}
+                  selectedCanvasImageUrl={
+                    canUseSelectedCanvasImage ? selectedCanvasImage.url : null
+                  }
                   videoAudioUrl={state.videoAudioUrl}
                   videoShotType={state.videoShotType}
                   negativePrompt={state.negativePrompt}
@@ -857,6 +964,8 @@ export function GenerationControls({ overlay }: { overlay?: boolean } = {}) {
                   onVideoAspectRatioChange={setVideoAspectRatio}
                   onGenerateAudioChange={setGenerateAudio}
                   onVideoImageUrlChange={setVideoImageUrl}
+                  onVideoImageUrl2Change={setVideoImageUrl2}
+                  onUseSelectedImageForVideoChange={setUseSelectedImageForVideo}
                   onVideoAudioUrlChange={setVideoAudioUrl}
                   onVideoShotTypeChange={setVideoShotType}
                   onNegativePromptChange={setNegativePrompt}

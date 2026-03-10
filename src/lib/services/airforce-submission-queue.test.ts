@@ -37,6 +37,34 @@ describe("extractAirforceRetryDirective", () => {
     });
   });
 
+  it("detects global rate limit errors and retries instantly", () => {
+    const directive = extractAirforceRetryDirective(
+      new AirforceVideoError(
+        429,
+        "Global rate limit exceeded (1 requests per second). Try again in 1.0 seconds. Or upgrade at api.airforce - discord.gg/airforce",
+        { upstreamStatus: 429 },
+      ),
+    );
+
+    expect(directive).toEqual({
+      kind: "global-rate-limit",
+      delayMs: 0,
+      message:
+        "Global rate limit exceeded (1 requests per second). Try again in 1.0 seconds. Or upgrade at api.airforce - discord.gg/airforce",
+    });
+  });
+
+  it("detects global rate limit errors regardless of upstream status", () => {
+    const directive = extractAirforceRetryDirective({
+      upstreamStatus: 500,
+      message:
+        "Global rate limit exceeded (1 requests per second). Try again in 1.0 seconds. Or upgrade at api.airforce - discord.gg/airforce",
+    });
+
+    expect(directive).not.toBeNull();
+    expect(directive!.kind).toBe("global-rate-limit");
+  });
+
   it("ignores non-upstream-429 errors", () => {
     const directive = extractAirforceRetryDirective(
       new AirforceVideoError(500, "Upstream failed", {
@@ -115,6 +143,24 @@ describe("queueAirforceSubmission", () => {
     await expect(firstPromise).resolves.toBe("first");
     await expect(secondPromise).resolves.toBe("second");
     expect(events).toEqual(["first:start", "first:end", "second:start", "second:end"]);
+  });
+
+  it("retries global rate limit errors transparently", async () => {
+    const sleep = vi.fn(async () => undefined);
+    const operation = vi
+      .fn<() => Promise<string>>()
+      .mockRejectedValueOnce({
+        upstreamStatus: 429,
+        message:
+          "Global rate limit exceeded (1 requests per second). Try again in 1.0 seconds. Or upgrade at api.airforce - discord.gg/airforce",
+      })
+      .mockResolvedValueOnce("done");
+
+    const result = await queueAirforceSubmission(operation, { sleep });
+
+    expect(result).toBe("done");
+    expect(operation).toHaveBeenCalledTimes(2);
+    expect(sleep).toHaveBeenCalledWith(0);
   });
 
   it("stops before execution when the queued job was cancelled", async () => {

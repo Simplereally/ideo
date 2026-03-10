@@ -33,6 +33,39 @@ interface UpstreamErrorDetail {
   upstreamBody?: unknown;
 }
 
+function addGrokImageToVideoErrorHint(
+  requestBody: Record<string, unknown>,
+  upstreamStatus: number,
+  message: string,
+): string {
+  if (upstreamStatus !== 400) return message;
+  if (requestBody.model !== "grok-imagine-video") return message;
+  if (!Array.isArray(requestBody.image_urls) || requestBody.image_urls.length === 0) {
+    return message;
+  }
+
+  const normalizedMessage = message.trim();
+  const isOpaqueProvider400 =
+    /provider error \(400 bad request\)/i.test(normalizedMessage) ||
+    normalizedMessage === "Airforce API returned HTTP 400";
+
+  if (!isOpaqueProvider400) {
+    return message;
+  }
+
+  return `${normalizedMessage} Airforce Grok image-to-video sometimes rejects specific prompt and reference-image combinations with an opaque 400. This request shape is valid; try a less suggestive prompt or a different reference image.`;
+}
+
+function isAirforceProviderError(error: unknown): error is AirforceVideoProviderError {
+  return (
+    error instanceof AirforceVideoProviderError ||
+    (typeof error === "object" &&
+      error !== null &&
+      (error as { name?: unknown }).name === "AirforceVideoProviderError" &&
+      typeof (error as { httpStatus?: unknown }).httpStatus === "number")
+  );
+}
+
 async function parseUpstreamError(upstream: Response): Promise<UpstreamErrorDetail> {
   const rawText = await upstream.text().catch(() => "");
   const fallbackMessage = `Airforce API returned HTTP ${upstream.status}`;
@@ -147,9 +180,11 @@ export async function POST(request: Request) {
     );
   }
 
+  let upstreamBody: Record<string, unknown> | null = null;
+
   try {
     const normalizedBody = normalizeRouteBody(body);
-    const upstreamBody = await buildAirforceVideoRequest(body.model, normalizedBody);
+    upstreamBody = await buildAirforceVideoRequest(body.model, normalizedBody);
     logGenerationRequest("POST api/airforce/video/generations", upstreamBody);
 
     const upstream = await fetch(UPSTREAM, {
@@ -163,6 +198,11 @@ export async function POST(request: Request) {
 
     if (!upstream.ok) {
       const errorDetail = await parseUpstreamError(upstream);
+      errorDetail.message = addGrokImageToVideoErrorHint(
+        upstreamBody,
+        errorDetail.upstreamStatus,
+        errorDetail.message,
+      );
       logGenerationResponse("POST api/airforce/video/generations", errorDetail);
 
       const responseBody: Record<string, unknown> = {
@@ -194,13 +234,13 @@ export async function POST(request: Request) {
       );
     }
 
-    const firstItem = items[0];
+    const lastItem = items[items.length - 1];
     let videoUrl: string | null = null;
 
-    if (firstItem.url) {
-      videoUrl = firstItem.url;
-    } else if (firstItem.b64_json) {
-      videoUrl = await uploadBase64ToR2(firstItem.b64_json, "video/mp4", "mp4");
+    if (lastItem.url) {
+      videoUrl = lastItem.url;
+    } else if (lastItem.b64_json) {
+      videoUrl = await uploadBase64ToR2(lastItem.b64_json, "video/mp4", "mp4");
     }
 
     if (!videoUrl) {
@@ -222,7 +262,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json(result);
   } catch (error) {
-    if (error instanceof AirforceVideoProviderError) {
+    if (isAirforceProviderError(error)) {
       logGenerationProviderError(
         "POST api/airforce/video/generations",
         200,
@@ -232,7 +272,11 @@ export async function POST(request: Request) {
 
       return NextResponse.json(
         {
-          error: error.message,
+          error: addGrokImageToVideoErrorHint(
+            upstreamBody ?? {},
+            error.httpStatus,
+            error.message,
+          ),
           upstreamStatus: error.httpStatus,
           upstreamBody: error.providerPayload,
         },

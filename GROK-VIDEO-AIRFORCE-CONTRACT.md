@@ -201,6 +201,29 @@ Examples:
 }
 ```
 
+## Observed Airforce Behavior Beyond The Pollinations Mirror
+
+Pollinations emits `aspectRatio` and `size` for Grok Video, including image-to-video.
+
+Live Airforce probes from Ideo show a more nuanced picture for image-to-video:
+
+- `aspectRatio` plus `image_urls` can succeed without `size`
+- omitting both `aspectRatio` and `size` is not reliably accepted
+- including `size` can trigger opaque provider-side `400 Bad Request` failures for some image references that succeed when the same request is retried without `size`
+- other image references still succeed even when `size` is present
+- some failures are caused by the specific prompt/reference-image combination, not by request shape alone
+
+So there are two different truths to keep separate:
+
+1. Pollinations-compatibility truth:
+   - send `aspectRatio` and `size` exactly as Pollinations does
+2. Robust-Ideo behavior truth:
+   - for Grok text-to-video, `aspectRatio` plus `size` remains valid
+   - for Grok image-to-video, current live evidence says `aspectRatio` plus `image_urls` is safer than `aspectRatio` plus `size` plus `image_urls`
+   - even with that safer shape, some prompt/image combinations still get opaque upstream `400` rejections
+
+Do not assume Airforce's playground behavior is authoritative here. Our live probes showed that dropping `aspectRatio` is not the key fix; omitting `size` was the high-signal difference in a real failing case.
+
 ## Fields Pollinations Does Not Send For Grok Video
 
 These fields are not part of the outbound Airforce JSON body for Grok Video:

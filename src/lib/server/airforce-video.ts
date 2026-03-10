@@ -122,6 +122,23 @@ function resolveNumberOption(
   return fallback;
 }
 
+function resolveReferenceImageUrls(
+  params: VideoRequestParams,
+  maxImages: number,
+): string[] {
+  const urls =
+    params.referenceImageUrls?.length
+      ? params.referenceImageUrls
+      : params.imageUrl
+        ? [params.imageUrl]
+        : [];
+
+  return urls
+    .map((url) => url.trim())
+    .filter((url) => url.length > 0)
+    .slice(0, maxImages);
+}
+
 function extractItemsFromObject(payload: Record<string, unknown>): AirforceMediaItem[] {
   if (payload.error) {
     throw toProviderError(
@@ -267,6 +284,7 @@ function buildGrokImagineVideoRequest(
 ): Record<string, unknown> {
   const aspectRatio = resolveGrokVideoAspectRatio(params.aspectRatio);
   const resolution = resolveGrokVideoResolution(params.resolution);
+  const hasReferenceImages = referenceImageUrls.length > 0;
   const body: Record<string, unknown> = {
     model: modelId,
     prompt: params.prompt,
@@ -274,10 +292,11 @@ function buildGrokImagineVideoRequest(
     response_format: "url",
     sse: true,
     aspectRatio,
-    size: resolveGrokVideoSize(aspectRatio, resolution),
   };
 
-  if (referenceImageUrls.length > 0) {
+  body.size = resolveGrokVideoSize(aspectRatio, resolution);
+
+  if (hasReferenceImages) {
     body.image_urls = referenceImageUrls;
   }
 
@@ -297,6 +316,7 @@ export async function buildAirforceVideoRequest(
     case "grok-imagine-video":
       return buildGrokImagineVideoRequest(modelId, params, referenceImageUrls);
     case "sora-2": {
+      const referenceImageUrls = resolveReferenceImageUrls(params, 1);
       const body: Record<string, unknown> = {
         model: modelId,
         prompt: params.prompt,
@@ -314,6 +334,7 @@ export async function buildAirforceVideoRequest(
       return body;
     }
     case "veo-3.1-fast": {
+      const referenceImageUrls = resolveReferenceImageUrls(params, 1);
       const body: Record<string, unknown> = {
         model: modelId,
         prompt: params.prompt,

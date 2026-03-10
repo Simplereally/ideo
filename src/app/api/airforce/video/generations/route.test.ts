@@ -150,6 +150,33 @@ describe("POST /api/airforce/video/generations", () => {
 
       expect(body.error).toBe("prompt too long");
     });
+
+    it("adds a targeted hint for opaque grok image-to-video 400s", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        url: "https://pub.example.com/reference.jpg",
+      });
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        text: async () => JSON.stringify({ error: "Provider error (400 Bad Request)" }),
+      });
+
+      const res = await POST(
+        makeRequest({
+          model: "grok-imagine-video",
+          prompt: "celestial beauty, shimmering otherwordly divine femininity",
+          aspectRatio: "3:2",
+          image_urls: ["https://pub.example.com/reference.jpg"],
+        }),
+      );
+
+      expect(res.status).toBe(400);
+      const body = await res.json();
+
+      expect(body.error).toContain("Provider error (400 Bad Request)");
+      expect(body.error).toContain("specific prompt and reference-image combinations");
+    });
   });
 
   describe("model-specific request shaping", () => {
@@ -236,7 +263,7 @@ describe("POST /api/airforce/video/generations", () => {
           model: "grok-imagine-video",
           prompt: "make the cat dance",
           imageUrl: "https://example.com/cat.jpg",
-          aspectRatio: "16:9", // should be omitted when imageUrl is present
+          aspectRatio: "16:9", // invalid for Grok; should normalize to the safe default
         }),
       );
 
@@ -255,9 +282,9 @@ describe("POST /api/airforce/video/generations", () => {
       expect(sentBody.model).toBe("grok-imagine-video");
       expect(sentBody.prompt).toBe("make the cat dance");
       expect(sentBody.aspectRatio).toBe("2:3");
-      expect(sentBody.size).toBe("720x1280");
       expect(sentBody.sse).toBe(true);
       expect(sentBody.image_urls).toEqual(["https://cdn.example.com/cat.jpg"]);
+      expect(sentBody).not.toHaveProperty("size");
     });
 
     it("accepts image_urls arrays from the client for grok-imagine-video", async () => {
@@ -285,7 +312,38 @@ describe("POST /api/airforce/video/generations", () => {
 
       expect(sentBody.image_urls).toEqual(["https://cdn.example.com/cat.jpg"]);
       expect(sentBody.aspectRatio).toBe("2:3");
-      expect(sentBody.size).toBe("720x1280");
+      expect(sentBody).not.toHaveProperty("size");
+    });
+
+    it("passes through at most two grok image_urls from the client", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        text: async () =>
+          JSON.stringify({ data: [{ url: "https://example.com/video.mp4" }] }),
+      });
+
+      await POST(
+        makeRequest({
+          model: "grok-imagine-video",
+          prompt: "make the cat dance",
+          image_urls: [
+            "https://example.com/cat-1.jpg",
+            "https://example.com/cat-2.jpg",
+            "https://example.com/cat-3.jpg",
+          ],
+        }),
+      );
+
+      expect(mockFetch).toHaveBeenCalledTimes(3);
+      const [, options] = mockFetch.mock.calls[2];
+      const sentBody = JSON.parse(options.body);
+
+      expect(sentBody.image_urls).toEqual([
+        "https://example.com/cat-1.jpg",
+        "https://example.com/cat-2.jpg",
+      ]);
+      expect(sentBody.aspectRatio).toBe("2:3");
+      expect(sentBody).not.toHaveProperty("size");
     });
   });
 

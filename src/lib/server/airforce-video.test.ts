@@ -84,7 +84,6 @@ describe("buildAirforceVideoRequest", () => {
         response_format: "url",
         sse: true,
         aspectRatio: "2:3",
-        size: "720x1280",
         image_urls: ["https://cdn.example.com/frame.png"],
       });
     });
@@ -111,7 +110,6 @@ describe("buildAirforceVideoRequest", () => {
         response_format: "url",
         sse: true,
         aspectRatio: "2:3",
-        size: "720x1280",
         image_urls: [
           "https://cdn.example.com/frame-1.png",
           "https://cdn.example.com/frame-2.png",
@@ -134,7 +132,6 @@ describe("buildAirforceVideoRequest", () => {
         response_format: "url",
         sse: true,
         aspectRatio: "2:3",
-        size: "720x1280",
         image_urls: ["https://example.com/frame.png"],
       });
     });
@@ -154,6 +151,25 @@ describe("buildAirforceVideoRequest", () => {
         sse: true,
         aspectRatio: "3:2",
         size: "1920x1080",
+      });
+    });
+
+    it("omits size for image-to-video requests while keeping aspectRatio", async () => {
+      expect(
+        await buildAirforceVideoRequest("grok-imagine-video", {
+          prompt: "animate this portrait",
+          aspectRatio: "3:2",
+          resolution: "1080p",
+          imageUrls: ["https://example.com/frame.png"],
+        }),
+      ).toEqual({
+        model: "grok-imagine-video",
+        prompt: "animate this portrait",
+        n: 1,
+        response_format: "url",
+        sse: true,
+        aspectRatio: "3:2",
+        image_urls: ["https://example.com/frame.png"],
       });
     });
   });

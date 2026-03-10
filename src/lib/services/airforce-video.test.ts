@@ -85,6 +85,42 @@ describe("createAirforceVideoGeneration", () => {
       });
       expect(JSON.parse(init?.body as string)).not.toHaveProperty("imageUrl");
     });
+
+    it("preserves up to two grok reference images from referenceImageUrls", async () => {
+      const mockResult = {
+        id: "gen-789",
+        status: "completed",
+        videoUrl: "https://example.com/video.mp4",
+        error: null,
+        meta: { model: "grok-imagine-video" },
+      };
+
+      fetchSpy.mockResolvedValueOnce(
+        new Response(JSON.stringify(mockResult), { status: 200 }),
+      );
+
+      await createAirforceVideoGeneration({
+        model: "grok-imagine-video",
+        params: {
+          prompt: "animate these frames",
+          referenceImageUrls: [
+            "https://example.com/frame-1.png",
+            "https://example.com/frame-2.png",
+          ],
+        },
+      });
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      const [, init] = fetchSpy.mock.calls[0];
+      expect(JSON.parse(init?.body as string)).toMatchObject({
+        model: "grok-imagine-video",
+        image_urls: [
+          "https://example.com/frame-1.png",
+          "https://example.com/frame-2.png",
+        ],
+      });
+      expect(JSON.parse(init?.body as string)).not.toHaveProperty("imageUrl");
+    });
   });
 
   describe("error handling with diagnostics", () => {
@@ -141,6 +177,7 @@ describe("createAirforceVideoGeneration", () => {
           model: "wan-2.6",
           params: { prompt: "test" },
         });
+        expect.fail("Expected AirforceVideoError to be thrown");
       } catch (err) {
         expect(err).toBeInstanceOf(AirforceVideoError);
         const airforceErr = err as AirforceVideoError;
@@ -166,6 +203,7 @@ describe("createAirforceVideoGeneration", () => {
           model: "sora-2",
           params: { prompt: "test" },
         });
+        expect.fail("Expected AirforceVideoError to be thrown");
       } catch (err) {
         expect(err).toBeInstanceOf(AirforceVideoError);
         const airforceErr = err as AirforceVideoError;
@@ -183,6 +221,7 @@ describe("createAirforceVideoGeneration", () => {
           model: "veo-3.1-fast",
           params: { prompt: "test" },
         });
+        expect.fail("Expected AirforceVideoError to be thrown");
       } catch (err) {
         expect(err).toBeInstanceOf(AirforceVideoError);
         const airforceErr = err as AirforceVideoError;
@@ -204,6 +243,7 @@ describe("createAirforceVideoGeneration", () => {
           model: "wan-2.6",
           params: { prompt: "test" },
         });
+        expect.fail("Expected AirforceVideoError to be thrown");
       } catch (err) {
         expect(err).toBeInstanceOf(AirforceVideoError);
         const airforceErr = err as AirforceVideoError;
@@ -225,6 +265,7 @@ describe("createAirforceVideoGeneration", () => {
           model: "grok-imagine-video",
           params: { prompt: "test" },
         });
+        expect.fail("Expected AirforceVideoError to be thrown");
       } catch (err) {
         expect(err).toBeInstanceOf(AirforceVideoError);
         const airforceErr = err as AirforceVideoError;

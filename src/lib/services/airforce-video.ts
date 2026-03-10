@@ -112,7 +112,7 @@ function getGrokImageUrls(
 ): string[] | undefined {
   const imageUrls = Array.from(
     new Set(
-      [params.imageUrl, ...(params.imageUrls ?? [])].filter(
+      [params.imageUrl, ...(params.imageUrls ?? []), ...(params.referenceImageUrls ?? [])].filter(
         (value): value is string => typeof value === "string" && value.trim().length > 0,
       ),
     ),
@@ -154,7 +154,7 @@ export async function createAirforceVideoGeneration(
     const { message, diagnostics, raw } = await parseErrorBody(res);
     throw new AirforceVideoError(
       res.status,
-      message ?? `Airforce video API returned HTTP ${res.status}`,
+      message || `Airforce video API returned HTTP ${res.status}`,
       diagnostics,
       raw,
     );

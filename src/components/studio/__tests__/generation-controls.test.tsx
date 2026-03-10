@@ -33,6 +33,7 @@
 
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useEffect } from "react";
 import { describe, it, expect, vi } from "vitest";
 import {
   MODELS,
@@ -44,6 +45,7 @@ import {
   getImageModels,
   type Provider,
   type ModelConfig,
+  type GeneratedImage,
 } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
@@ -120,7 +122,7 @@ vi.mock("@/components/ui/separator", () => ({
 // Imports (after mocks are registered)
 // ---------------------------------------------------------------------------
 
-import { StudioProvider, initialState } from "@/lib/store";
+import { StudioProvider, initialState, useStudio } from "@/lib/store";
 import { GenerationControls } from "../generation-controls";
 
 // ---------------------------------------------------------------------------
@@ -135,9 +137,30 @@ import { GenerationControls } from "../generation-controls";
  * false, making content inaccessible. Overlay mode renders the panel
  * content directly, sidestepping animation state.
  */
-function renderSettings() {
+const SELECTED_IMAGE_FIXTURE: GeneratedImage = {
+  id: "selected-image",
+  prompt: "Selected image",
+  imageUrl: "https://example.com/selected-image.png",
+  aspectRatio: "1:1",
+  model: "google:imagen-4.0-generate-001",
+  provider: "google",
+  createdAt: 1,
+};
+
+function SeedSelectedImage() {
+  const { selectImage } = useStudio();
+
+  useEffect(() => {
+    selectImage(SELECTED_IMAGE_FIXTURE);
+  }, [selectImage]);
+
+  return null;
+}
+
+function renderSettings(options?: { withSelectedImage?: boolean }) {
   return render(
     <StudioProvider>
+      {options?.withSelectedImage ? <SeedSelectedImage /> : null}
       <GenerationControls overlay />
     </StudioProvider>,
   );
@@ -549,6 +572,18 @@ describe("GenerationControls (Settings UI integration)", () => {
       await selectModelByLabel(user, videoWithResolution!.label);
 
       expect(screen.getByText(/resolution/i)).toBeInTheDocument();
+    });
+
+    it("shows a selected canvas image toggle for supported video models", async () => {
+      const user = userEvent.setup();
+      renderSettings({ withSelectedImage: true });
+
+      await selectProvider(user, "airforce");
+      await selectModelByLabel(user, "Grok Imagine Video");
+
+      expect(
+        await screen.findByText(/use selected canvas image/i),
+      ).toBeInTheDocument();
     });
   });
 

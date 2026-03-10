@@ -275,6 +275,8 @@ describe("HistoryPanel", () => {
 
     render(<HistoryPanel overlay />);
 
+    await user.click(screen.getByRole("radio", { name: /show all history/i }));
+
     const imageRow = screen
       .getByText("Failed image prompt")
       .closest(".ios-list-item") as HTMLElement | null;
@@ -308,12 +310,14 @@ describe("HistoryPanel", () => {
 
     render(<HistoryPanel overlay />);
 
+    await user.click(screen.getByRole("radio", { name: /show all history/i }));
+
     expect(screen.getByText("Completed history image")).toBeInTheDocument();
     expect(screen.getByText("Completed video prompt")).toBeInTheDocument();
     expect(screen.getByText("Failed image prompt")).toBeInTheDocument();
     expect(screen.getByText("Failed video prompt")).toBeInTheDocument();
-    expect(screen.getByText("Active video prompt")).toBeInTheDocument();
-    expect(screen.getByText("Active image prompt")).toBeInTheDocument();
+    expect(screen.queryByText("Active video prompt")).not.toBeInTheDocument();
+    expect(screen.queryByText("Active image prompt")).not.toBeInTheDocument();
 
     await user.click(
       screen.getByRole("radio", { name: /show complete history/i }),
@@ -338,22 +342,12 @@ describe("HistoryPanel", () => {
     expect(screen.queryByText("Active image prompt")).not.toBeInTheDocument();
   });
 
-  it("clears saved images and terminal jobs across both stores", async () => {
-    const user = userEvent.setup();
-
-    render(<HistoryPanel overlay />);
-
-    await user.click(screen.getByRole("button", { name: /clear all/i }));
-
-    expect(clearHistory).toHaveBeenCalledTimes(1);
-    expect(videoStoreState.clearTerminalJobs).toHaveBeenCalledTimes(1);
-    expect(imageStoreState.clearTerminalJobs).toHaveBeenCalledTimes(1);
-  });
-
   it("routes selection between saved images and video jobs without losing current behavior", async () => {
     const user = userEvent.setup();
 
     render(<HistoryPanel overlay />);
+
+    await user.click(screen.getByRole("radio", { name: /show all history/i }));
 
     await user.click(screen.getByRole("button", { name: /completed history image/i }));
     expect(videoStoreState.selectJob).toHaveBeenCalledWith(null);
@@ -361,9 +355,9 @@ describe("HistoryPanel", () => {
       expect.objectContaining({ id: "image-complete" }),
     );
 
-    await user.click(screen.getByRole("button", { name: /active video prompt/i }));
+    await user.click(screen.getByRole("button", { name: /completed video prompt/i }));
     expect(selectImage).toHaveBeenCalledWith(null);
-    expect(videoStoreState.selectJob).toHaveBeenCalledWith("video-active");
+    expect(videoStoreState.selectJob).toHaveBeenCalledWith("video-complete");
   });
 
   it("closes the overlay history panel after selecting a saved image on mobile", async () => {
@@ -419,21 +413,21 @@ describe("HistoryPanel", () => {
     expect(screen.queryByText("Only active video prompt")).not.toBeInTheDocument();
   });
 
-  it("exposes selected rows semantically for assistive technology", () => {
+  it("exposes selected rows semantically for assistive technology", async () => {
+    const user = userEvent.setup();
     studioState.selectedImage = studioState.history[0] ?? null;
-    videoStoreState.selectedJobId = "video-active";
+    videoStoreState.selectedJobId = "video-complete";
 
     render(<HistoryPanel overlay />);
+
+    await user.click(screen.getByRole("radio", { name: /show all history/i }));
 
     expect(
       screen.getByRole("button", { name: /completed history image/i }),
     ).toHaveAttribute("aria-pressed", "true");
     expect(
-      screen.getByRole("button", { name: /active video prompt/i }),
-    ).toHaveAttribute("aria-pressed", "true");
-    expect(
       screen.getByRole("button", { name: /completed video prompt/i }),
-    ).toHaveAttribute("aria-pressed", "false");
+    ).toHaveAttribute("aria-pressed", "true");
   });
 
   it("keeps row action buttons out of keyboard flow until the row is active", async () => {
@@ -461,8 +455,11 @@ describe("HistoryPanel", () => {
   });
 
   describe("failed image job retry UX parity with video", () => {
-    it("shows retry button in thumbnail area for failed image jobs", () => {
+    it("shows retry button in thumbnail area for failed image jobs", async () => {
+      const user = userEvent.setup();
       render(<HistoryPanel overlay />);
+
+      await user.click(screen.getByRole("radio", { name: /show all history/i }));
 
       const imageRow = screen
         .getByText("Failed image prompt")
@@ -482,6 +479,8 @@ describe("HistoryPanel", () => {
 
       render(<HistoryPanel overlay />);
 
+      await user.click(screen.getByRole("radio", { name: /show all history/i }));
+
       const imageRow = screen
         .getByText("Failed image prompt")
         .closest(".ios-list-item") as HTMLElement | null;
@@ -495,8 +494,11 @@ describe("HistoryPanel", () => {
       expect(retryImageJob).toHaveBeenCalledWith("image-error");
     });
 
-    it("shows failed image jobs with error status in history panel", () => {
+    it("shows failed image jobs with error status in history panel", async () => {
+      const user = userEvent.setup();
       render(<HistoryPanel overlay />);
+
+      await user.click(screen.getByRole("radio", { name: /show all history/i }));
 
       expect(screen.getByText("Failed image prompt")).toBeInTheDocument();
       const imageRow = screen
@@ -507,8 +509,11 @@ describe("HistoryPanel", () => {
       expect(within(imageRow!).getByText("Failed")).toBeInTheDocument();
     });
 
-    it("displays failed image and video with matching retry affordance styling", () => {
+    it("displays failed image and video with matching retry affordance styling", async () => {
+      const user = userEvent.setup();
       render(<HistoryPanel overlay />);
+
+      await user.click(screen.getByRole("radio", { name: /show all history/i }));
 
       const imageRow = screen
         .getByText("Failed image prompt")
@@ -548,43 +553,14 @@ describe("HistoryPanel", () => {
       expect(screen.queryByText("Active image prompt")).not.toBeInTheDocument();
     });
 
-    it("shows cancel button for active image jobs", async () => {
+    it("keeps active image jobs out of history", async () => {
       const user = userEvent.setup();
 
       render(<HistoryPanel overlay />);
 
-      const activeImageRow = screen
-        .getByText("Active image prompt")
-        .closest(".ios-list-item") as HTMLElement | null;
+      await user.click(screen.getByRole("radio", { name: /show all history/i }));
 
-      expect(activeImageRow).toBeInTheDocument();
-
-      // Hover to reveal the action button
-      await user.hover(activeImageRow!);
-
-      const cancelButton = within(activeImageRow!).getByRole("button", {
-        name: /cancel image generation/i,
-      });
-      expect(cancelButton).toBeInTheDocument();
-    });
-
-    it("calls cancelJobLocal when cancel button is clicked for active image", async () => {
-      const user = userEvent.setup();
-
-      render(<HistoryPanel overlay />);
-
-      const activeImageRow = screen
-        .getByText("Active image prompt")
-        .closest(".ios-list-item") as HTMLElement | null;
-
-      await user.hover(activeImageRow!);
-      await user.click(
-        within(activeImageRow!).getByRole("button", {
-          name: /cancel image generation/i,
-        }),
-      );
-
-      expect(imageStoreState.cancelJobLocal).toHaveBeenCalledWith("image-active");
+      expect(screen.queryByText("Active image prompt")).not.toBeInTheDocument();
     });
   });
 
@@ -600,8 +576,11 @@ describe("HistoryPanel", () => {
       expect(videoRow).toBeInTheDocument();
     });
 
-    it("shows failed video jobs with error status in history panel", () => {
+    it("shows failed video jobs with error status in history panel", async () => {
+      const user = userEvent.setup();
       render(<HistoryPanel overlay />);
+
+      await user.click(screen.getByRole("radio", { name: /show all history/i }));
 
       expect(screen.getByText("Failed video prompt")).toBeInTheDocument();
       const videoRow = screen
@@ -612,23 +591,24 @@ describe("HistoryPanel", () => {
       expect(within(videoRow!).getByText("Failed")).toBeInTheDocument();
     });
 
-    it("shows active video jobs with generating status", () => {
+    it("keeps active video jobs out of history", async () => {
+      const user = userEvent.setup();
       render(<HistoryPanel overlay />);
 
-      expect(screen.getByText("Active video prompt")).toBeInTheDocument();
-      const videoRow = screen
-        .getByText("Active video prompt")
-        .closest(".ios-list-item") as HTMLElement | null;
+      await user.click(screen.getByRole("radio", { name: /show all history/i }));
 
-      expect(videoRow).toBeInTheDocument();
-      expect(within(videoRow!).getByText("Generating")).toBeInTheDocument();
+      expect(screen.queryByText("Active video prompt")).not.toBeInTheDocument();
     });
 
-    it("displays completed video alongside saved images in all filter", () => {
+    it("displays completed video alongside saved images in all filter", async () => {
+      const user = userEvent.setup();
       render(<HistoryPanel overlay />);
+
+      await user.click(screen.getByRole("radio", { name: /show all history/i }));
 
       expect(screen.getByText("Completed video prompt")).toBeInTheDocument();
       expect(screen.getByText("Completed history image")).toBeInTheDocument();
+      expect(screen.queryByText("Active video prompt")).not.toBeInTheDocument();
     });
 
     it("filters to show only completed videos in complete filter", async () => {
@@ -659,8 +639,11 @@ describe("HistoryPanel", () => {
       expect(videoStoreState.selectJob).toHaveBeenCalledWith("video-complete");
     });
 
-    it("shows retry button in thumbnail area for failed video jobs", () => {
+    it("shows retry button in thumbnail area for failed video jobs", async () => {
+      const user = userEvent.setup();
       render(<HistoryPanel overlay />);
+
+      await user.click(screen.getByRole("radio", { name: /show all history/i }));
 
       const videoRow = screen
         .getByText("Failed video prompt")
@@ -675,29 +658,12 @@ describe("HistoryPanel", () => {
       expect(retryButton).toBeInTheDocument();
     });
 
-    it("shows cancel button for active video jobs", async () => {
-      const user = userEvent.setup();
-
-      render(<HistoryPanel overlay />);
-
-      const activeVideoRow = screen
-        .getByText("Active video prompt")
-        .closest(".ios-list-item") as HTMLElement | null;
-
-      expect(activeVideoRow).toBeInTheDocument();
-
-      await user.hover(activeVideoRow!);
-
-      const cancelButton = within(activeVideoRow!).getByRole("button", {
-        name: /cancel video generation/i,
-      });
-      expect(cancelButton).toBeInTheDocument();
-    });
-
     it("calls retryVideoJob when retry button is clicked for failed video", async () => {
       const user = userEvent.setup();
 
       render(<HistoryPanel overlay />);
+
+      await user.click(screen.getByRole("radio", { name: /show all history/i }));
 
       const videoRow = screen
         .getByText("Failed video prompt")
@@ -711,25 +677,6 @@ describe("HistoryPanel", () => {
       );
 
       expect(retryVideoJob).toHaveBeenCalledWith("video-error");
-    });
-
-    it("calls cancelJobLocal when cancel button is clicked for active video", async () => {
-      const user = userEvent.setup();
-
-      render(<HistoryPanel overlay />);
-
-      const activeVideoRow = screen
-        .getByText("Active video prompt")
-        .closest(".ios-list-item") as HTMLElement | null;
-
-      await user.hover(activeVideoRow!);
-      await user.click(
-        within(activeVideoRow!).getByRole("button", {
-          name: /cancel video generation/i,
-        }),
-      );
-
-      expect(videoStoreState.cancelJobLocal).toHaveBeenCalledWith("video-active");
     });
 
     it("shows remove button for completed (non-active) video jobs", async () => {
@@ -774,7 +721,8 @@ describe("HistoryPanel", () => {
       expect(videoStoreState.removeJob).toHaveBeenCalledWith("video-complete");
     });
 
-    it("displays videos with queued status as active", () => {
+    it("does not display queued videos in history", async () => {
+      const user = userEvent.setup();
       videoStoreState.jobs = [
         createVideoJob({
           id: "video-queued",
@@ -785,12 +733,9 @@ describe("HistoryPanel", () => {
 
       render(<HistoryPanel overlay />);
 
-      expect(screen.getByText("Queued video prompt")).toBeInTheDocument();
-      const videoRow = screen
-        .getByText("Queued video prompt")
-        .closest(".ios-list-item") as HTMLElement | null;
+      await user.click(screen.getByRole("radio", { name: /show all history/i }));
 
-      expect(within(videoRow!).getByText("Queued")).toBeInTheDocument();
+      expect(screen.queryByText("Queued video prompt")).not.toBeInTheDocument();
     });
 
     it("displays videos with cancelled status in failures section", async () => {
