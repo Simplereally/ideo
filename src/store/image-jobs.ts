@@ -53,6 +53,7 @@ interface ImageJobsState {
 
   // ---- mutations ----
   addJob: (job: ImageJob) => void;
+  setJobStatus: (id: string, status: ImageJobStatus, patch?: Partial<ImageJob>) => void;
   startJob: (id: string) => void;
   markJobCompleted: (id: string, resultUrl: string) => void;
   markJobError: (id: string, message: string) => void;
@@ -108,6 +109,11 @@ export const useImageJobsStore = create<ImageJobsState>()(
 
       addJob: (job) =>
         set((s) => ({ jobs: [job, ...s.jobs] })),
+
+      setJobStatus: (id, status, patch) =>
+        set((s) => ({
+          jobs: patchJob(s.jobs, id, { ...patch, status }),
+        })),
 
       startJob: (id) =>
         set((s) => ({

@@ -4,7 +4,6 @@ import { isAllowedModel } from "@/lib/server/model-allowlist";
 import { extractApiKey } from "@/lib/server/extract-credentials";
 import { generationLimiter, getClientIp, rateLimitResponse } from "@/lib/server/rate-limit";
 import { resolveApiKey } from "@/lib/server/resolve-keys";
-import { retryOn429 } from "@/lib/retry-on-429";
 import {
   logGenerationProviderError,
   logGenerationRequest,
@@ -153,16 +152,14 @@ export async function POST(request: Request) {
     const upstreamBody = await buildAirforceVideoRequest(body.model, normalizedBody);
     logGenerationRequest("POST api/airforce/video/generations", upstreamBody);
 
-    const upstream = await retryOn429(() =>
-      fetch(UPSTREAM, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(upstreamBody),
-      }),
-    );
+    const upstream = await fetch(UPSTREAM, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(upstreamBody),
+    });
 
     if (!upstream.ok) {
       const errorDetail = await parseUpstreamError(upstream);

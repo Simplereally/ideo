@@ -4,7 +4,6 @@ import { isAllowedModel } from "@/lib/server/model-allowlist";
 import { generationLimiter, getClientIp, rateLimitResponse } from "@/lib/server/rate-limit";
 import { resolveApiKey } from "@/lib/server/resolve-keys";
 import { extractApiKey } from "@/lib/server/extract-credentials";
-import { retryOn429 } from "@/lib/retry-on-429";
 import {
   logGenerationRequest,
   logGenerationResponse,
@@ -164,16 +163,14 @@ export async function POST(request: Request) {
   try {
     logGenerationRequest("POST api/generate/airforce", airforceBody);
 
-    const upstream = await retryOn429(() =>
-      fetch(UPSTREAM, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify(airforceBody),
-      }),
-    );
+    const upstream = await fetch(UPSTREAM, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(airforceBody),
+    });
 
     console.log("[api/generate/airforce] upstream response status:", upstream.status);
 
@@ -182,8 +179,10 @@ export async function POST(request: Request) {
       logGenerationTextResponse("POST api/generate/airforce", upstream.status, errText);
 
       let errMsg = `Airforce API returned ${upstream.status}`;
+      let upstreamBody: unknown;
       try {
         const errData = JSON.parse(errText) as { error?: { message?: string } | string };
+        upstreamBody = errData;
         if (errData.error) {
           errMsg =
             typeof errData.error === "string"
@@ -193,8 +192,16 @@ export async function POST(request: Request) {
       } catch {
         // errText was not valid JSON — use status-based message
         if (errText) errMsg = errText.slice(0, 200);
+        upstreamBody = errText.slice(0, 1000);
       }
-      return NextResponse.json({ error: errMsg }, { status: upstream.status });
+      return NextResponse.json(
+        {
+          error: errMsg,
+          upstreamStatus: upstream.status,
+          upstreamBody,
+        },
+        { status: upstream.status },
+      );
     }
 
     // Read raw text first so we can log even if JSON parsing fails

@@ -1,7 +1,9 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getModelConfig, type GeneratedImage } from "@/lib/types";
+import { AirforceVideoError } from "@/lib/services/airforce-video";
+import { resetAirforceSubmissionQueueForTests } from "@/lib/services/airforce-submission-queue";
 
 type MockVideoCreateResult = {
   id: string;
@@ -70,6 +72,7 @@ const mocks = vi.hoisted(() => ({
   imageStoreState: {
     jobs: [] as any[],
     addJob: vi.fn(),
+    setJobStatus: vi.fn(),
     startJob: vi.fn(),
     markJobCompleted: vi.fn(),
     markJobError: vi.fn(),
@@ -200,6 +203,8 @@ function Harness() {
 describe("GenerationActionsProvider", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.useRealTimers();
+    resetAirforceSubmissionQueueForTests();
     mocks.videoStoreState.jobs = [];
     mocks.videoStoreState.selectedJobId = null;
     mocks.imageStoreState.jobs = [];
@@ -834,7 +839,144 @@ describe("GenerationActionsProvider", () => {
       "https://example.com/image-3.png",
       "https://example.com/image-2.png",
       "https://example.com/image-1.png",
-    ]);
+    ]);    
+  });
+
+  it("requeues Airforce image jobs when the provider asks to retry in X seconds", async () => {
+    vi.useFakeTimers();
+
+    mocks.studioState.prompt = "A cinematic lighthouse in fog";
+    mocks.studioState.model = "airforce:grok-imagine";
+    mocks.studioState.provider = "airforce";
+
+    (global.fetch as unknown as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            error:
+              "Rate limit exceeded (1 request(s) per minute). Try again in 2 seconds. discord.gg/airforce",
+            upstreamStatus: 429,
+            upstreamBody: {
+              error:
+                "Rate limit exceeded (1 request(s) per minute). Try again in 2 seconds. discord.gg/airforce",
+            },
+          }),
+          {
+            status: 429,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            imageUrl: "https://example.com/airforce-image.png",
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      );
+
+    render(
+      <GenerationActionsProvider>
+        <Harness />
+      </GenerationActionsProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /generate image/i }));
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_250);
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+    expect(mocks.imageStoreState.setJobStatus).toHaveBeenCalledWith(
+      expect.any(String),
+      "queued",
+    );
+    expect(mocks.imageStoreState.markJobError).not.toHaveBeenCalled();
+    expect(mocks.imageStoreState.markJobCompleted).toHaveBeenCalledWith(
+      expect.any(String),
+      "https://example.com/airforce-image.png",
+    );
+
+    vi.useRealTimers();
+  });
+
+  it("retries Airforce video submissions after the provider wait window instead of failing immediately", async () => {
+    vi.useFakeTimers();
+
+    mocks.studioState.provider = "airforce" as const;
+    mocks.studioState.model = "airforce:wan-2.6";
+    mocks.studioState.prompt = "A glass elevator moving through clouds";
+    mocks.studioState.videoResolution = "720P";
+    mocks.studioState.duration = 5;
+
+    mocks.createVideoGeneration
+      .mockRejectedValueOnce(
+        new AirforceVideoError(
+          429,
+          "Rate limit exceeded (1 request(s) per minute). Try again in 3 seconds. discord.gg/airforce",
+          {
+            upstreamStatus: 429,
+            upstreamBody: {
+              error:
+                "Rate limit exceeded (1 request(s) per minute). Try again in 3 seconds. discord.gg/airforce",
+            },
+          },
+        ),
+      )
+      .mockResolvedValueOnce({
+        id: "airforce-video-retried",
+        status: "completed",
+        videoUrl: "https://example.com/retried.mp4",
+        error: null,
+        meta: {},
+      });
+
+    render(
+      <GenerationActionsProvider>
+        <Harness />
+      </GenerationActionsProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /generate image/i }));
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(mocks.createVideoGeneration).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_250);
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(mocks.createVideoGeneration).toHaveBeenCalledTimes(2);
+    expect(mocks.videoStoreState.markJobError).not.toHaveBeenCalled();
+    expect(mocks.videoStoreState.updateJob).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        status: "queued",
+        requestPending: true,
+      }),
+    );
+    expect(mocks.videoStoreState.markJobCompleted).toHaveBeenCalledWith(
+      "airforce-video-retried",
+      "https://example.com/retried.mp4",
+    );
+
+    vi.useRealTimers();
   });
 
   it("marks video job as failed when initial submission fails (parity with image failure)", async () => {

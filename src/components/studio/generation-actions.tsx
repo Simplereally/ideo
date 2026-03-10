@@ -21,6 +21,10 @@ import {
 } from "@/lib/types";
 import { createVideoGeneration, getVideoGeneration } from "@/lib/services/video-generation";
 import { AirforceVideoError } from "@/lib/services/airforce-video";
+import {
+  AirforceSubmissionCancelledError,
+  queueAirforceSubmission,
+} from "@/lib/services/airforce-submission-queue";
 import { pollVideoGeneration, type PollHandle } from "@/lib/services/video-polling";
 import { useVideoJobsStore } from "@/store/video-jobs";
 import { useImageJobsStore, type ImageJob, type ImageRetryPayload } from "@/store/image-jobs";
@@ -271,6 +275,58 @@ function createRetryImageJob(retryPayload: ImageRetryPayload): ImageJob {
   };
 }
 
+type ImageGenerationError = Error & {
+  status?: number;
+  upstreamStatus?: number;
+  upstreamBody?: unknown;
+};
+
+async function buildImageGenerationError(
+  response: Response,
+  provider: Provider,
+): Promise<ImageGenerationError> {
+  const fallbackMessage = `${provider} generation failed`;
+  let message = fallbackMessage;
+  let upstreamStatus: number | undefined;
+  let upstreamBody: unknown;
+
+  const rawText = await response.text().catch(() => "");
+  if (rawText.trim()) {
+    try {
+      const parsed = JSON.parse(rawText) as {
+        error?: string | { message?: string };
+        message?: string;
+        upstreamStatus?: number;
+        upstreamBody?: unknown;
+      };
+
+      if (typeof parsed.error === "string") {
+        message = parsed.error;
+      } else if (parsed.error?.message) {
+        message = parsed.error.message;
+      } else if (parsed.message) {
+        message = parsed.message;
+      }
+
+      if (typeof parsed.upstreamStatus === "number") {
+        upstreamStatus = parsed.upstreamStatus;
+      }
+      if (parsed.upstreamBody !== undefined) {
+        upstreamBody = parsed.upstreamBody;
+      }
+    } catch {
+      message = rawText.slice(0, 200);
+    }
+  }
+
+  const error = new Error(message) as ImageGenerationError;
+  error.name = "ImageGenerationError";
+  error.status = response.status;
+  error.upstreamStatus = upstreamStatus;
+  error.upstreamBody = upstreamBody;
+  return error;
+}
+
 export function GenerationActionsProvider({
   children,
 }: {
@@ -281,12 +337,14 @@ export function GenerationActionsProvider({
 
   const addVideoJob = useVideoJobsStore((s) => s.addJob);
   const replaceVideoJob = useVideoJobsStore((s) => s.replaceJob);
+  const updateVideoJob = useVideoJobsStore((s) => s.updateJob);
   const setVideoJobStatus = useVideoJobsStore((s) => s.setJobStatus);
   const markVideoJobCompleted = useVideoJobsStore((s) => s.markJobCompleted);
   const markVideoJobError = useVideoJobsStore((s) => s.markJobError);
   const selectVideoJob = useVideoJobsStore((s) => s.selectJob);
 
   const addImageJob = useImageJobsStore((s) => s.addJob);
+  const setImageJobStatus = useImageJobsStore((s) => s.setJobStatus);
   const startImageJob = useImageJobsStore((s) => s.startJob);
   const markImageJobCompleted = useImageJobsStore((s) => s.markJobCompleted);
   const markImageJobError = useImageJobsStore((s) => s.markJobError);
@@ -371,37 +429,64 @@ export function GenerationActionsProvider({
 
   const executeImageJob = useCallback(
     (job: ImageJob) => {
-      if (useImageJobsStore.getState().jobs.find((entry) => entry.id === job.id)?.status === "cancelled") {
+      const isCancelled = () =>
+        useImageJobsStore.getState().jobs.find((entry) => entry.id === job.id)?.status ===
+        "cancelled";
+
+      if (isCancelled()) {
         return;
       }
 
-      startImageJob(job.id);
+      const runRequest = async () => {
+        if (isCancelled()) {
+          throw new AirforceSubmissionCancelledError();
+        }
 
-      const controller = new AbortController();
-      imageAbortRef.current.set(job.id, controller);
+        startImageJob(job.id);
 
-      const providerRoute = `/api/generate/${job.provider}`;
-      const credentials = buildProviderCredentials(
-        job.provider,
-        useSettingsStore.getState(),
-      );
-      const livePayload = injectCredentials(job.payload, credentials);
+        const controller = new AbortController();
+        imageAbortRef.current.set(job.id, controller);
 
-      fetch(providerRoute, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(livePayload),
-        signal: controller.signal,
-      })
-        .then(async (response) => {
-          const data: ImageGenerationResponse & { error?: string } = await response.json();
+        const providerRoute = `/api/generate/${job.provider}`;
+        const credentials = buildProviderCredentials(
+          job.provider,
+          useSettingsStore.getState(),
+        );
+        const livePayload = injectCredentials(job.payload, credentials);
+
+        try {
+          const response = await fetch(providerRoute, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(livePayload),
+            signal: controller.signal,
+          });
+
           if (!response.ok) {
-            throw new Error(data.error || `${job.provider} generation failed`);
+            throw await buildImageGenerationError(response, job.provider);
           }
+
+          const data = (await response.json()) as ImageGenerationResponse;
           validateImageGenerationResponse(data, job.provider);
-          const images = getGeneratedImages(data);
-          return images;
-        })
+          return getGeneratedImages(data);
+        } finally {
+          imageAbortRef.current.delete(job.id);
+        }
+      };
+
+      const requestPromise =
+        job.provider === "airforce"
+          ? queueAirforceSubmission(runRequest, {
+              isCancelled,
+              onRetryScheduled: (directive) => {
+                if (directive.kind === "provider-wait") {
+                  setImageJobStatus(job.id, "queued");
+                }
+              },
+            })
+          : runRequest();
+
+      requestPromise
         .then((generatedImages) => {
           const currentJob = useImageJobsStore
             .getState()
@@ -432,17 +517,26 @@ export function GenerationActionsProvider({
           });
         })
         .catch((error: unknown) => {
-          if ((error as Error).name === "AbortError") return;
+          if (
+            (error as Error).name === "AbortError" ||
+            error instanceof AirforceSubmissionCancelledError
+          ) {
+            return;
+          }
+
           const message =
             error instanceof Error ? error.message : "Image generation failed";
           markImageJobError(job.id, message);
           toast.error(message);
-        })
-        .finally(() => {
-          imageAbortRef.current.delete(job.id);
         });
     },
-    [completeGeneration, markImageJobCompleted, markImageJobError, startImageJob],
+    [
+      completeGeneration,
+      markImageJobCompleted,
+      markImageJobError,
+      setImageJobStatus,
+      startImageJob,
+    ],
   );
 
   const submitVideoJob = useCallback(
@@ -504,12 +598,45 @@ export function GenerationActionsProvider({
           useSettingsStore.getState(),
         );
 
-        const createResult = await createVideoGeneration({
-          provider,
-          model: modelConfig.value,
-          params: requestParams,
-          credentials,
-        });
+        const createResult =
+          provider === "airforce"
+            ? await queueAirforceSubmission(
+                () => {
+                  const currentJob = useVideoJobsStore
+                    .getState()
+                    .jobs.find((job) => job.id === pendingJobId);
+                  if (currentJob?.status === "cancelled") {
+                    throw new AirforceSubmissionCancelledError();
+                  }
+
+                  return createVideoGeneration({
+                    provider,
+                    model: modelConfig.value,
+                    params: requestParams,
+                    credentials,
+                  });
+                },
+                {
+                  isCancelled: () =>
+                    useVideoJobsStore
+                      .getState()
+                      .jobs.find((job) => job.id === pendingJobId)?.status === "cancelled",
+                  onRetryScheduled: (directive) => {
+                    if (directive.kind === "provider-wait") {
+                      updateVideoJob(pendingJobId, {
+                        status: "queued",
+                        requestPending: true,
+                      });
+                    }
+                  },
+                },
+              )
+            : await createVideoGeneration({
+                provider,
+                model: modelConfig.value,
+                params: requestParams,
+                credentials,
+              });
 
         const latestPendingJob = useVideoJobsStore
           .getState()
@@ -562,7 +689,10 @@ export function GenerationActionsProvider({
         const latestPendingJob = useVideoJobsStore
           .getState()
           .jobs.find((job) => job.id === pendingJobId);
-        if (latestPendingJob?.status === "cancelled") {
+        if (
+          latestPendingJob?.status === "cancelled" ||
+          error instanceof AirforceSubmissionCancelledError
+        ) {
           return;
         }
 
@@ -596,6 +726,7 @@ export function GenerationActionsProvider({
       replaceVideoJob,
       selectVideoJob,
       startPollingJob,
+      updateVideoJob,
     ],
   );
 

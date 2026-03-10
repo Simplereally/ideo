@@ -180,7 +180,6 @@ const PendingCard = memo(function PendingCard({
       <button
         type="button"
         onClick={handleCancel}
-        disabled={isSubmitting}
         className={cn(
           "flex items-center justify-center size-[18px] rounded-md shrink-0",
           "text-muted-foreground/40",
@@ -188,7 +187,7 @@ const PendingCard = memo(function PendingCard({
           "hover:text-destructive hover:bg-destructive/10",
           "active:bg-destructive/15 active:scale-95",
           "transition-[opacity,color,background-color] duration-75",
-          isSubmitting ? "cursor-not-allowed opacity-30" : "cursor-pointer",
+          "cursor-pointer",
         )}
         aria-label="Cancel video generation"
       >
