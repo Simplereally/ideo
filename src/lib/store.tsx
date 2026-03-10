@@ -12,7 +12,6 @@ import {
 import {
   MODELS,
   getMaxImagesForModel,
-  getModelsForProvider,
   getDefaultModelForProvider,
   getModelConfig,
   type AspectRatio,
@@ -21,6 +20,9 @@ import {
   type Provider,
   type VideoShotType,
 } from "@/lib/types";
+
+const HISTORY_STORAGE_KEY = "ideo-history";
+const PREFERENCES_STORAGE_KEY = "ideo-studio-preferences";
 
 // ---------------------------------------------------------------------------
 // State
@@ -139,7 +141,98 @@ export type StudioAction =
   | { type: "SET_API_KEY_DIALOG"; payload: boolean }
   | { type: "SET_IMAGE_VIEWER"; payload: boolean }
   | { type: "RESET_STATUS" }
-  | { type: "HYDRATE"; payload: { history: GeneratedImage[] } };
+  | {
+      type: "HYDRATE";
+      payload: {
+        history: GeneratedImage[];
+        preferences?: Partial<
+          Pick<
+            StudioState,
+            "provider" | "model" | "aspectRatio" | "videoAspectRatio" | "videoResolution"
+          >
+        >;
+      };
+    };
+
+type PersistedStudioPreferences = Pick<
+  StudioState,
+  "provider" | "model" | "aspectRatio" | "videoAspectRatio" | "videoResolution"
+>;
+
+function isAspectRatioSupported(
+  model: ReturnType<typeof getModelConfig>,
+  ratio: AspectRatio,
+): boolean {
+  const aspectRatios = model?.capabilities.aspectRatios;
+  return !aspectRatios?.length || aspectRatios.includes(ratio);
+}
+
+function resolvePersistedModel(
+  provider: Provider | undefined,
+  modelId: string | undefined,
+): NonNullable<ReturnType<typeof getModelConfig>> {
+  const storedModel = modelId ? getModelConfig(modelId) : undefined;
+  if (storedModel) {
+    return storedModel;
+  }
+
+  const providerDefault = provider ? getDefaultModelForProvider(provider) : undefined;
+  return providerDefault ?? getModelConfig(initialState.model)!;
+}
+
+function sanitizePersistedPreferences(raw: unknown): Partial<PersistedStudioPreferences> {
+  if (!raw || typeof raw !== "object") {
+    return {};
+  }
+
+  const parsed = raw as Partial<PersistedStudioPreferences>;
+  const provider =
+    typeof parsed.provider === "string" &&
+    MODELS.some((model) => model.provider === parsed.provider)
+      ? parsed.provider
+      : undefined;
+  const model = resolvePersistedModel(provider, parsed.model);
+
+  const preferences: Partial<PersistedStudioPreferences> = {
+    provider: model.provider,
+    model: model.id,
+  };
+
+  if (
+    typeof parsed.aspectRatio === "string" &&
+    isAspectRatioSupported(model, parsed.aspectRatio as AspectRatio)
+  ) {
+    preferences.aspectRatio = parsed.aspectRatio as AspectRatio;
+  }
+
+  if (
+    typeof parsed.videoAspectRatio === "string" &&
+    (!model.capabilities.videoAspectRatios?.length ||
+      model.capabilities.videoAspectRatios.includes(parsed.videoAspectRatio))
+  ) {
+    preferences.videoAspectRatio = parsed.videoAspectRatio;
+  }
+
+  if (
+    typeof parsed.videoResolution === "string" &&
+    (!model.capabilities.resolutionOptions?.length ||
+      model.capabilities.resolutionOptions.includes(parsed.videoResolution))
+  ) {
+    preferences.videoResolution = parsed.videoResolution;
+  }
+
+  return preferences;
+}
+
+function getPersistedPreferences(state: StudioState): PersistedStudioPreferences {
+  return {
+    provider: state.provider,
+    model: state.model,
+    aspectRatio: state.aspectRatio,
+    videoAspectRatio: state.videoAspectRatio,
+    videoResolution: state.videoResolution,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Helpers — kind-specific defaults
@@ -322,6 +415,7 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
     case "HYDRATE":
       return {
         ...state,
+        ...action.payload.preferences,
         history: action.payload.history,
       };
     default:
@@ -381,38 +475,62 @@ const StudioContext = createContext<StudioContextValue | null>(null);
 
 export function StudioProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(studioReducer, initialState);
-  const [isHistoryHydrated, setIsHistoryHydrated] = useState(false);
+  const [isHydrated, setIsHydrated] = useState(false);
 
   // Hydrate from localStorage on mount + purge legacy secrets
   useEffect(() => {
-    try {
-      // One-time cleanup: remove legacy key that stored client-side API secrets.
-      localStorage.removeItem("ideo-settings");
+      try {
+        // One-time cleanup: remove legacy key that stored client-side API secrets.
+        localStorage.removeItem("ideo-settings");
 
-      const storedHistory = localStorage.getItem("ideo-history");
-      dispatch({
-        type: "HYDRATE",
-        payload: {
-          history: storedHistory ? (JSON.parse(storedHistory) as GeneratedImage[]) : [],
-        },
-      });
-    } catch {
-      // SSR or localStorage unavailable — ignore
-    } finally {
-      setIsHistoryHydrated(true);
-    }
-  }, []);
+        const storedHistory = localStorage.getItem(HISTORY_STORAGE_KEY);
+        const storedPreferences = localStorage.getItem(PREFERENCES_STORAGE_KEY);
+        dispatch({
+          type: "HYDRATE",
+          payload: {
+            history: storedHistory ? (JSON.parse(storedHistory) as GeneratedImage[]) : [],
+            preferences: sanitizePersistedPreferences(
+              storedPreferences ? JSON.parse(storedPreferences) : undefined,
+            ),
+          },
+        });
+      } catch {
+        // SSR or localStorage unavailable — ignore
+      } finally {
+        setIsHydrated(true);
+      }
+    }, []);
 
   // Persist history
   useEffect(() => {
-    if (!isHistoryHydrated) return;
+    if (!isHydrated) return;
 
     try {
-      localStorage.setItem("ideo-history", JSON.stringify(state.history));
+      localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(state.history));
     } catch {
       // ignore
     }
-  }, [isHistoryHydrated, state.history]);
+  }, [isHydrated, state.history]);
+
+  useEffect(() => {
+    if (!isHydrated) return;
+
+    try {
+      localStorage.setItem(
+        PREFERENCES_STORAGE_KEY,
+        JSON.stringify(getPersistedPreferences(state)),
+      );
+    } catch {
+      // ignore
+    }
+  }, [
+    isHydrated,
+    state.aspectRatio,
+    state.model,
+    state.provider,
+    state.videoAspectRatio,
+    state.videoResolution,
+  ]);
 
   // ---- Action creators (stable refs via useCallback) ----
 
