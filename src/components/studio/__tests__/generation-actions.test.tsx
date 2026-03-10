@@ -1,12 +1,21 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { getModelConfig } from "@/lib/types";
+import { getModelConfig, type GeneratedImage } from "@/lib/types";
+
+type MockVideoCreateResult = {
+  id: string;
+  status: "queued";
+  videoUrl: null;
+  error: null;
+  meta: Record<string, never>;
+};
 
 const mocks = vi.hoisted(() => ({
   createVideoGeneration: vi.fn(),
   getVideoGeneration: vi.fn(),
   pollVideoGeneration: vi.fn(),
+  normalizeReferenceImageUrl: vi.fn(async (url: string) => url),
   buildProviderCredentials: vi.fn(() => undefined),
   injectCredentials: vi.fn((payload) => payload),
   completeGeneration: vi.fn(),
@@ -31,11 +40,12 @@ const mocks = vi.hoisted(() => ({
     generateAudio: false,
     videoImageUrl: "",
     videoAudioUrl: "",
+    useSelectedImageAsVideoReference: false,
     videoShotType: "single" as const,
     status: "idle" as const,
     error: null,
     history: [],
-    selectedImage: null,
+    selectedImage: null as GeneratedImage | null,
     isHistoryOpen: false,
     isControlsOpen: false,
     isApiKeyDialogOpen: false,
@@ -46,6 +56,7 @@ const mocks = vi.hoisted(() => ({
     selectedJobId: null as string | null,
     activeJobIds: [] as string[],
     addJob: vi.fn(),
+    replaceJob: vi.fn(),
     updateJob: vi.fn(),
     setJobStatus: vi.fn(),
     markJobCompleted: vi.fn(),
@@ -83,6 +94,10 @@ vi.mock("@/lib/services/provider-credentials", () => ({
   injectCredentials: mocks.injectCredentials,
 }));
 
+vi.mock("@/lib/services/reference-image-upload", () => ({
+  normalizeReferenceImageUrl: mocks.normalizeReferenceImageUrl,
+}));
+
 vi.mock("@/store/settings", () => ({
   useSettingsStore: {
     getState: () => ({}),
@@ -111,6 +126,7 @@ vi.mock("@/lib/store", () => ({
     setGenerateAudio: vi.fn(),
     setVideoImageUrl: vi.fn(),
     setVideoAudioUrl: vi.fn(),
+    setUseSelectedImageAsVideoReference: vi.fn(),
     setVideoShotType: vi.fn(),
     startGeneration: vi.fn(),
     completeGeneration: mocks.completeGeneration,
@@ -188,6 +204,7 @@ describe("GenerationActionsProvider", () => {
     mocks.videoStoreState.selectedJobId = null;
     mocks.imageStoreState.jobs = [];
     global.fetch = vi.fn();
+    mocks.normalizeReferenceImageUrl.mockImplementation(async (url: string) => url);
 
     mocks.pollVideoGeneration.mockReturnValue({
       cancel: vi.fn(),
@@ -198,6 +215,67 @@ describe("GenerationActionsProvider", () => {
         error: null,
         meta: {},
       }),
+    });
+  });
+
+  it("optimistically enqueues fresh video generations before the create request resolves", async () => {
+    mocks.studioState.provider = "aiml" as const;
+    mocks.studioState.model = "aiml:klingai/video-v3-pro-text-to-video";
+    mocks.studioState.prompt = "A paper lantern drifting through fog";
+
+    let resolveCreate: ((value: MockVideoCreateResult) => void) | undefined;
+
+    mocks.createVideoGeneration.mockImplementation(
+      () =>
+        new Promise<MockVideoCreateResult>((resolve) => {
+          resolveCreate = resolve;
+        }),
+    );
+
+    render(
+      <GenerationActionsProvider>
+        <Harness />
+      </GenerationActionsProvider>,
+    );
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /generate image/i }));
+
+    expect(mocks.videoStoreState.addJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: "aiml:klingai/video-v3-pro-text-to-video",
+        provider: "aiml",
+        prompt: "A paper lantern drifting through fog",
+        status: "queued",
+        requestPending: true,
+      }),
+    );
+    expect(mocks.videoStoreState.selectJob).toHaveBeenCalledWith(expect.any(String));
+    expect(mocks.videoStoreState.replaceJob).not.toHaveBeenCalled();
+
+    if (!resolveCreate) {
+      throw new Error("Expected createVideoGeneration to be pending");
+    }
+
+    resolveCreate({
+      id: "video-created-1",
+      status: "queued",
+      videoUrl: null,
+      error: null,
+      meta: {},
+    });
+
+    await waitFor(() => {
+      expect(mocks.videoStoreState.replaceJob).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          id: "video-created-1",
+          model: "aiml:klingai/video-v3-pro-text-to-video",
+          provider: "aiml",
+          status: "queued",
+          requestPending: false,
+        }),
+      );
     });
   });
 
@@ -244,7 +322,21 @@ describe("GenerationActionsProvider", () => {
         });
       });
 
-      expect(mocks.videoStoreState.addJob).toHaveBeenCalledWith(
+      expect(mocks.videoStoreState.replaceJob).toHaveBeenNthCalledWith(
+        1,
+        "video-error-1",
+        expect.objectContaining({
+          model: videoModelId,
+          provider: "aiml",
+          params: retryPayload.params,
+          prompt: retryPayload.params.prompt,
+          status: "queued",
+          requestPending: true,
+        }),
+      );
+      expect(mocks.videoStoreState.replaceJob).toHaveBeenNthCalledWith(
+        2,
+        expect.any(String),
         expect.objectContaining({
           id: "new-video-id",
           model: videoModelId,
@@ -252,14 +344,11 @@ describe("GenerationActionsProvider", () => {
           params: retryPayload.params,
           prompt: retryPayload.params.prompt,
           status: "queued",
+          requestPending: false,
         }),
       );
-      expect(mocks.videoStoreState.removeJob).toHaveBeenCalledWith(
-        "video-error-1",
-      );
-      expect(mocks.videoStoreState.selectJob).toHaveBeenCalledWith(
-        "new-video-id",
-      );
+      expect(mocks.videoStoreState.addJob).not.toHaveBeenCalled();
+      expect(mocks.videoStoreState.selectJob).toHaveBeenCalledWith(expect.any(String));
     },
   );
 
@@ -379,21 +468,200 @@ describe("GenerationActionsProvider", () => {
 
     expect(mocks.videoStoreState.addJob).toHaveBeenCalledWith(
       expect.objectContaining({
+        model: "airforce:wan-2.6",
+        provider: "airforce",
+        status: "queued",
+        requestPending: true,
+      }),
+    );
+    expect(mocks.videoStoreState.replaceJob).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
         id: "airforce-video-1",
         model: "airforce:wan-2.6",
         provider: "airforce",
         status: "completed",
+        requestPending: false,
       }),
     );
-    expect(mocks.videoStoreState.selectJob).toHaveBeenCalledWith(
-      "airforce-video-1",
-    );
+    expect(mocks.videoStoreState.selectJob).toHaveBeenCalledWith(expect.any(String));
     expect(mocks.videoStoreState.markJobCompleted).toHaveBeenCalledWith(
       "airforce-video-1",
       "https://example.com/wan.mp4",
     );
     expect(mocks.pollVideoGeneration).not.toHaveBeenCalled();
     expect(mocks.setPrompt).toHaveBeenCalledWith("");
+  });
+
+  it("sends both the pasted and selected history image for Airforce Grok Imagine Video", async () => {
+    mocks.studioState.provider = "airforce" as const;
+    mocks.studioState.model = "airforce:grok-imagine-video";
+    mocks.studioState.prompt = "Turn both stills into a single moving shot";
+    mocks.studioState.videoAspectRatio = "3:2";
+    mocks.studioState.videoResolution = "720p";
+    mocks.studioState.videoImageUrl = "https://example.com/pasted.png";
+    mocks.studioState.useSelectedImageAsVideoReference = true;
+    mocks.studioState.selectedImage = {
+      id: "history-image-1",
+      prompt: "History image",
+      negativePrompt: undefined,
+      imageUrl: "https://example.com/history.png",
+      aspectRatio: "1:1",
+      model: "google:imagen-4.0-generate-001",
+      provider: "google",
+      createdAt: Date.now(),
+    };
+
+    mocks.createVideoGeneration.mockResolvedValue({
+      id: "airforce-grok-video-1",
+      status: "completed",
+      videoUrl: "https://example.com/grok.mp4",
+      error: null,
+      meta: {},
+    });
+    mocks.normalizeReferenceImageUrl.mockImplementation(async (url: string) =>
+      url.replace(".png", "-normalized.png"),
+    );
+    render(
+      <GenerationActionsProvider>
+        <Harness />
+      </GenerationActionsProvider>,
+    );
+
+    await userEvent
+      .setup()
+      .click(screen.getByRole("button", { name: /generate image/i }));
+
+    await waitFor(() => {
+      expect(mocks.createVideoGeneration).toHaveBeenCalledWith({
+        provider: "airforce",
+        model: "grok-imagine-video",
+        params: {
+          prompt: "Turn both stills into a single moving shot",
+          aspectRatio: "3:2",
+          resolution: "720p",
+          imageUrl: "https://example.com/pasted-normalized.png",
+          imageUrls: [
+            "https://example.com/pasted-normalized.png",
+            "https://example.com/history-normalized.png",
+          ],
+        },
+        credentials: undefined,
+      });
+    });
+
+    expect(mocks.normalizeReferenceImageUrl).toHaveBeenCalledTimes(2);
+
+    mocks.studioState.videoImageUrl = "";
+    mocks.studioState.useSelectedImageAsVideoReference = false;
+    mocks.studioState.selectedImage = null;
+  });
+
+  it("uses the selected history image directly for Airforce Grok Imagine Video", async () => {
+    mocks.studioState.provider = "airforce" as const;
+    mocks.studioState.model = "airforce:grok-imagine-video";
+    mocks.studioState.prompt = "Use the selected image directly";
+    mocks.studioState.videoAspectRatio = "3:2";
+    mocks.studioState.videoResolution = "480p";
+    mocks.studioState.useSelectedImageAsVideoReference = true;
+    mocks.studioState.selectedImage = {
+      id: "history-image-2",
+      prompt: "History image",
+      negativePrompt: undefined,
+      imageUrl: "https://example.com/direct.png",
+      aspectRatio: "1:1",
+      model: "google:imagen-4.0-generate-001",
+      provider: "google",
+      createdAt: Date.now(),
+    };
+    mocks.createVideoGeneration.mockResolvedValue({
+      id: "airforce-grok-video-2",
+      status: "completed",
+      videoUrl: "https://example.com/grok-2.mp4",
+      error: null,
+      meta: {},
+    });
+    mocks.normalizeReferenceImageUrl.mockImplementation(async (url: string) =>
+      url.replace(".png", "-normalized.png"),
+    );
+    render(
+      <GenerationActionsProvider>
+        <Harness />
+      </GenerationActionsProvider>,
+    );
+
+    await userEvent
+      .setup()
+      .click(screen.getByRole("button", { name: /generate image/i }));
+
+    await waitFor(() => {
+      expect(mocks.createVideoGeneration).toHaveBeenCalledWith({
+        provider: "airforce",
+        model: "grok-imagine-video",
+        params: {
+          prompt: "Use the selected image directly",
+          aspectRatio: "3:2",
+          resolution: "480p",
+          imageUrls: ["https://example.com/direct-normalized.png"],
+        },
+        credentials: undefined,
+      });
+    });
+
+    expect(mocks.normalizeReferenceImageUrl).toHaveBeenCalledTimes(1);
+
+    mocks.studioState.useSelectedImageAsVideoReference = false;
+    mocks.studioState.selectedImage = null;
+  });
+
+  it("falls back to the original image URL when normalization returns a localhost proxy", async () => {
+    mocks.studioState.provider = "airforce" as const;
+    mocks.studioState.model = "airforce:grok-imagine-video";
+    mocks.studioState.prompt = "Keep the original provider-safe URL";
+    mocks.studioState.videoAspectRatio = "2:3";
+    mocks.studioState.videoResolution = "480p";
+    mocks.studioState.videoImageUrl = "https://example.com/original.png";
+    mocks.createVideoGeneration.mockResolvedValue({
+      id: "airforce-grok-video-3",
+      status: "completed",
+      videoUrl: "https://example.com/grok-3.mp4",
+      error: null,
+      meta: {},
+    });
+    mocks.normalizeReferenceImageUrl.mockResolvedValue(
+      "http://localhost:3000/api/reference-image?src=https%3A%2F%2Fexample.com%2Foriginal.png",
+    );
+
+    render(
+      <GenerationActionsProvider>
+        <Harness />
+      </GenerationActionsProvider>,
+    );
+
+    await userEvent
+      .setup()
+      .click(screen.getByRole("button", { name: /generate image/i }));
+
+    await waitFor(() => {
+      expect(mocks.createVideoGeneration).toHaveBeenCalledWith({
+        provider: "airforce",
+        model: "grok-imagine-video",
+        params: {
+          prompt: "Keep the original provider-safe URL",
+          aspectRatio: "2:3",
+          resolution: "480p",
+          imageUrl: "https://example.com/original.png",
+          imageUrls: ["https://example.com/original.png"],
+        },
+        credentials: undefined,
+      });
+    });
+
+    expect(mocks.normalizeReferenceImageUrl).toHaveBeenCalledTimes(1);
+
+    mocks.studioState.videoImageUrl = "";
+    mocks.studioState.useSelectedImageAsVideoReference = false;
+    mocks.studioState.selectedImage = null;
   });
 
   it("forwards batch size and records every returned image for image generation", async () => {

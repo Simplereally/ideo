@@ -4,6 +4,12 @@ import { isAllowedModel } from "@/lib/server/model-allowlist";
 import { generationLimiter, getClientIp, rateLimitResponse } from "@/lib/server/rate-limit";
 import { resolveApiKey } from "@/lib/server/resolve-keys";
 import { extractApiKey } from "@/lib/server/extract-credentials";
+import { retryOn429 } from "@/lib/retry-on-429";
+import {
+  logGenerationRequest,
+  logGenerationResponse,
+  logGenerationTextResponse,
+} from "@/lib/server/generation-debug";
 import { MODELS } from "@/lib/types";
 import type { ImageGenerationRequest, ImageGenerationResponse } from "@/lib/types/generation";
 import { validateImageGenerationResponse } from "@/lib/types/generation";
@@ -156,22 +162,24 @@ export async function POST(request: Request) {
   }
 
   try {
-    console.log("[api/generate/airforce] upstream request body:", JSON.stringify(airforceBody));
+    logGenerationRequest("POST api/generate/airforce", airforceBody);
 
-    const upstream = await fetch(UPSTREAM, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify(airforceBody),
-    });
+    const upstream = await retryOn429(() =>
+      fetch(UPSTREAM, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify(airforceBody),
+      }),
+    );
 
     console.log("[api/generate/airforce] upstream response status:", upstream.status);
 
     if (!upstream.ok) {
       const errText = await upstream.text().catch(() => "");
-      console.error("[api/generate/airforce] upstream error body:", errText);
+      logGenerationTextResponse("POST api/generate/airforce", upstream.status, errText);
 
       let errMsg = `Airforce API returned ${upstream.status}`;
       try {
@@ -195,6 +203,7 @@ export async function POST(request: Request) {
       "[api/generate/airforce] raw response body (first 500 chars):",
       rawText.slice(0, 500),
     );
+    logGenerationTextResponse("POST api/generate/airforce", upstream.status, rawText);
 
     let data: Record<string, unknown>;
     try {
@@ -211,6 +220,7 @@ export async function POST(request: Request) {
       "[api/generate/airforce] parsed response keys:",
       Object.keys(data),
     );
+    logGenerationResponse("POST api/generate/airforce", data);
 
     // Extract image items — handle both `data` array (OpenAI standard)
     // and a top-level `images` or `url` field (non-standard fallbacks).

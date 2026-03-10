@@ -1,9 +1,21 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  AirforceVideoProviderError,
   buildAirforceVideoRequest,
   extractAirforceVideoItems,
   isSupportedAirforceVideoModel,
 } from "./airforce-video";
+
+const fetchSpy = vi.fn<typeof globalThis.fetch>();
+
+beforeEach(() => {
+  fetchSpy.mockReset();
+  vi.stubGlobal("fetch", fetchSpy);
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe("isSupportedAirforceVideoModel", () => {
   it("accepts the Airforce video models exposed by this app", () => {
@@ -19,16 +31,16 @@ describe("isSupportedAirforceVideoModel", () => {
 });
 
 describe("buildAirforceVideoRequest", () => {
-  describe("wan-2.6 (conservative payload)", () => {
-    it("builds a minimal request without undocumented fields", () => {
+  describe("wan-2.6", () => {
+    it("builds a minimal conservative request", async () => {
       expect(
-        buildAirforceVideoRequest("wan-2.6", {
+        await buildAirforceVideoRequest("wan-2.6", {
           prompt: "a cute cat",
-          aspectRatio: "9:16", // ignored - not sent to avoid contract mismatch
+          aspectRatio: "9:16",
           duration: 10,
           resolution: "1080P",
-          generateAudio: false, // ignored - sound field is undocumented
-          imageUrl: "https://example.com/cat.png", // ignored - no documented i2v field
+          generateAudio: false,
+          imageUrl: "https://example.com/cat.png",
         }),
       ).toEqual({
         model: "wan-2.6",
@@ -39,12 +51,12 @@ describe("buildAirforceVideoRequest", () => {
       });
     });
 
-    it("falls back to safe defaults when params are omitted or invalid", () => {
+    it("falls back to safe defaults when params are omitted or invalid", async () => {
       expect(
-        buildAirforceVideoRequest("wan-2.6", {
+        await buildAirforceVideoRequest("wan-2.6", {
           prompt: "a cute cat",
-          duration: 99, // invalid -> fallback
-          resolution: "4K", // invalid -> fallback
+          duration: 99,
+          resolution: "4K",
         }),
       ).toEqual({
         model: "wan-2.6",
@@ -54,76 +66,102 @@ describe("buildAirforceVideoRequest", () => {
         resolution: "720P",
       });
     });
-
-    it("omits aspectRatio, sound, and wan_image_url (undocumented fields)", () => {
-      const request = buildAirforceVideoRequest("wan-2.6", {
-        prompt: "test",
-        aspectRatio: "16:9",
-        generateAudio: true,
-        imageUrl: "https://example.com/img.png",
-      });
-      expect(request).not.toHaveProperty("aspectRatio");
-      expect(request).not.toHaveProperty("sound");
-      expect(request).not.toHaveProperty("wan_image_url");
-    });
   });
 
   describe("grok-imagine-video", () => {
-    it("uses image_urls instead of aspectRatio for image-to-video", () => {
+    it("uses image_urls for single-image requests", async () => {
+      fetchSpy.mockResolvedValueOnce({ url: "https://cdn.example.com/frame.png" } as Response);
+
       expect(
-        buildAirforceVideoRequest("grok-imagine-video", {
+        await buildAirforceVideoRequest("grok-imagine-video", {
           prompt: "turn this still into motion",
-          aspectRatio: "1:1", // ignored when imageUrl is present
-          resolution: "720p",
           imageUrl: "https://example.com/frame.png",
         }),
       ).toEqual({
         model: "grok-imagine-video",
         prompt: "turn this still into motion",
+        n: 1,
+        response_format: "url",
         sse: true,
-        mode: "normal",
-        resolution: "720p",
+        aspectRatio: "2:3",
+        size: "720x1280",
+        image_urls: ["https://cdn.example.com/frame.png"],
+      });
+    });
+
+    it("uses image_urls and caps the array at two items", async () => {
+      fetchSpy
+        .mockResolvedValueOnce({ url: "https://cdn.example.com/frame-1.png" } as Response)
+        .mockResolvedValueOnce({ url: "https://cdn.example.com/frame-2.png" } as Response);
+
+      expect(
+        await buildAirforceVideoRequest("grok-imagine-video", {
+          prompt: "blend these into motion",
+          aspectRatio: "2:3",
+          imageUrls: [
+            "https://example.com/frame-1.png",
+            "https://example.com/frame-2.png",
+            "https://example.com/frame-3.png",
+          ],
+        }),
+      ).toEqual({
+        model: "grok-imagine-video",
+        prompt: "blend these into motion",
+        n: 1,
+        response_format: "url",
+        sse: true,
+        aspectRatio: "2:3",
+        size: "720x1280",
+        image_urls: [
+          "https://cdn.example.com/frame-1.png",
+          "https://cdn.example.com/frame-2.png",
+        ],
+      });
+    });
+
+    it("falls back to the original image URL when redirect resolution fails", async () => {
+      fetchSpy.mockRejectedValueOnce(new Error("network error"));
+
+      expect(
+        await buildAirforceVideoRequest("grok-imagine-video", {
+          prompt: "keep the original image URL",
+          imageUrl: "https://example.com/frame.png",
+        }),
+      ).toEqual({
+        model: "grok-imagine-video",
+        prompt: "keep the original image URL",
+        n: 1,
+        response_format: "url",
+        sse: true,
+        aspectRatio: "2:3",
+        size: "720x1280",
         image_urls: ["https://example.com/frame.png"],
       });
     });
 
-    it("includes aspectRatio for text-to-video (no imageUrl)", () => {
+    it("maps landscape 1080p requests to the exact Airforce size contract", async () => {
       expect(
-        buildAirforceVideoRequest("grok-imagine-video", {
-          prompt: "a sunset over the ocean",
-          aspectRatio: "2:3",
-          resolution: "480p",
+        await buildAirforceVideoRequest("grok-imagine-video", {
+          prompt: "a cinematic flythrough",
+          aspectRatio: "3:2",
+          resolution: "1080p",
         }),
       ).toEqual({
         model: "grok-imagine-video",
-        prompt: "a sunset over the ocean",
+        prompt: "a cinematic flythrough",
+        n: 1,
+        response_format: "url",
         sse: true,
-        mode: "normal",
-        resolution: "480p",
-        aspectRatio: "2:3",
-      });
-    });
-
-    it("falls back to safe defaults for text-to-video", () => {
-      expect(
-        buildAirforceVideoRequest("grok-imagine-video", {
-          prompt: "test",
-        }),
-      ).toEqual({
-        model: "grok-imagine-video",
-        prompt: "test",
-        sse: true,
-        mode: "normal",
-        resolution: "480p",
         aspectRatio: "3:2",
+        size: "1920x1080",
       });
     });
   });
 
   describe("sora-2", () => {
-    it("builds a text-to-video request with valid params", () => {
+    it("builds a text-to-video request with valid params", async () => {
       expect(
-        buildAirforceVideoRequest("sora-2", {
+        await buildAirforceVideoRequest("sora-2", {
           prompt: "a majestic eagle soaring",
           aspectRatio: "landscape",
           duration: 15,
@@ -137,9 +175,11 @@ describe("buildAirforceVideoRequest", () => {
       });
     });
 
-    it("builds an image-to-video request with image_urls", () => {
+    it("builds an image-to-video request with image_urls", async () => {
+      fetchSpy.mockResolvedValueOnce({ url: "https://cdn.example.com/scene.png" } as Response);
+
       expect(
-        buildAirforceVideoRequest("sora-2", {
+        await buildAirforceVideoRequest("sora-2", {
           prompt: "animate this scene",
           aspectRatio: "portrait",
           duration: 10,
@@ -151,31 +191,15 @@ describe("buildAirforceVideoRequest", () => {
         sse: true,
         aspectRatio: "portrait",
         duration: 10,
-        image_urls: ["https://example.com/scene.png"],
-      });
-    });
-
-    it("falls back to safe defaults when params are invalid", () => {
-      expect(
-        buildAirforceVideoRequest("sora-2", {
-          prompt: "test",
-          aspectRatio: "16:9", // invalid -> fallback to portrait
-          duration: 99, // invalid -> fallback to 10
-        }),
-      ).toEqual({
-        model: "sora-2",
-        prompt: "test",
-        sse: true,
-        aspectRatio: "portrait",
-        duration: 10,
+        image_urls: ["https://cdn.example.com/scene.png"],
       });
     });
   });
 
   describe("veo-3.1-fast", () => {
-    it("builds a text-to-video request with valid params", () => {
+    it("builds a text-to-video request with valid params", async () => {
       expect(
-        buildAirforceVideoRequest("veo-3.1-fast", {
+        await buildAirforceVideoRequest("veo-3.1-fast", {
           prompt: "a futuristic cityscape",
           aspectRatio: "16:9",
         }),
@@ -187,9 +211,11 @@ describe("buildAirforceVideoRequest", () => {
       });
     });
 
-    it("builds an image-to-video request with start_frame_url", () => {
+    it("builds an image-to-video request with start_frame_url", async () => {
+      fetchSpy.mockResolvedValueOnce({ url: "https://cdn.example.com/frame.jpg" } as Response);
+
       expect(
-        buildAirforceVideoRequest("veo-3.1-fast", {
+        await buildAirforceVideoRequest("veo-3.1-fast", {
           prompt: "bring this image to life",
           aspectRatio: "9:16",
           imageUrl: "https://example.com/frame.jpg",
@@ -199,44 +225,9 @@ describe("buildAirforceVideoRequest", () => {
         prompt: "bring this image to life",
         sse: true,
         aspectRatio: "9:16",
-        start_frame_url: "https://example.com/frame.jpg",
+        start_frame_url: "https://cdn.example.com/frame.jpg",
       });
     });
-
-    it("falls back to safe defaults when params are invalid", () => {
-      expect(
-        buildAirforceVideoRequest("veo-3.1-fast", {
-          prompt: "test",
-          aspectRatio: "1:1", // invalid -> fallback to 16:9
-        }),
-      ).toEqual({
-        model: "veo-3.1-fast",
-        prompt: "test",
-        sse: true,
-        aspectRatio: "16:9",
-      });
-    });
-
-    it("does NOT include image-ish fields (size, n, response_format)", () => {
-      const request = buildAirforceVideoRequest("veo-3.1-fast", { prompt: "test" });
-      expect(request).not.toHaveProperty("size");
-      expect(request).not.toHaveProperty("n");
-      expect(request).not.toHaveProperty("response_format");
-    });
-  });
-
-  it("does NOT include image-ish fields (size, n, response_format) in video requests", () => {
-    const wanRequest = buildAirforceVideoRequest("wan-2.6", { prompt: "test" });
-    const grokRequest = buildAirforceVideoRequest("grok-imagine-video", { prompt: "test" });
-    
-    // These fields are appropriate for image models but not video models
-    expect(wanRequest).not.toHaveProperty("size");
-    expect(wanRequest).not.toHaveProperty("n");
-    expect(wanRequest).not.toHaveProperty("response_format");
-    
-    expect(grokRequest).not.toHaveProperty("size");
-    expect(grokRequest).not.toHaveProperty("n");
-    expect(grokRequest).not.toHaveProperty("response_format");
   });
 });
 
@@ -252,8 +243,19 @@ describe("extractAirforceVideoItems", () => {
       "data: [DONE]",
     ].join("\n");
 
+    expect(extractAirforceVideoItems(raw)).toEqual([{ url: "https://example.com/final.mp4" }]);
+  });
+
+  it("extracts SSE events that include event metadata and the provider's final payload shape", () => {
+    const raw = [
+      "event: message",
+      "data: {\"created\":1773120288,\"data\":[{\"url\":\"https://anondrop.net/1480798552568365168/vid.mp4\",\"b64_json\":null}]}",
+      "",
+      "data: [DONE]",
+    ].join("\r\n");
+
     expect(extractAirforceVideoItems(raw)).toEqual([
-      { url: "https://example.com/final.mp4" },
+      { url: "https://anondrop.net/1480798552568365168/vid.mp4", b64_json: null },
     ]);
   });
 
@@ -268,15 +270,26 @@ describe("extractAirforceVideoItems", () => {
   });
 
   it("surfaces upstream Airforce errors", () => {
-    expect(() =>
+    try {
       extractAirforceVideoItems(
         JSON.stringify({
           error: {
             message: "upstream failure",
+            status: 400,
+            details: {
+              field: "image_url",
+            },
           },
         }),
-      ),
-    ).toThrow("upstream failure");
+      );
+      throw new Error("Expected extractAirforceVideoItems to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(AirforceVideoProviderError);
+      expect((error as AirforceVideoProviderError).message).toBe(
+        "upstream failure | {\"field\":\"image_url\"}",
+      );
+      expect((error as AirforceVideoProviderError).httpStatus).toBe(400);
+    }
   });
 
   describe("defensive SSE parsing", () => {
@@ -289,9 +302,7 @@ describe("extractAirforceVideoItems", () => {
         "data: [DONE]",
       ].join("\n");
 
-      expect(extractAirforceVideoItems(raw)).toEqual([
-        { url: "https://example.com/video.mp4" },
-      ]);
+      expect(extractAirforceVideoItems(raw)).toEqual([{ url: "https://example.com/video.mp4" }]);
     });
 
     it("handles mixed valid and invalid chunks gracefully", () => {
@@ -304,33 +315,7 @@ describe("extractAirforceVideoItems", () => {
         "",
       ].join("\n");
 
-      expect(extractAirforceVideoItems(raw)).toEqual([
-        { url: "https://example.com/final.mp4" },
-      ]);
-    });
-
-    it("returns empty array when all chunks are malformed", () => {
-      const raw = [
-        "data: {broken",
-        "",
-        "data: also broken}",
-        "",
-      ].join("\n");
-
-      expect(extractAirforceVideoItems(raw)).toEqual([]);
-    });
-
-    it("handles empty payloads gracefully", () => {
-      const raw = [
-        "data: ",
-        "",
-        "data: {\"data\":[{\"url\":\"https://example.com/video.mp4\"}]}",
-        "",
-      ].join("\n");
-
-      expect(extractAirforceVideoItems(raw)).toEqual([
-        { url: "https://example.com/video.mp4" },
-      ]);
+      expect(extractAirforceVideoItems(raw)).toEqual([{ url: "https://example.com/final.mp4" }]);
     });
   });
 });

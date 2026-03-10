@@ -7,13 +7,16 @@ import {
   useCallback,
   useMemo,
   useLayoutEffect,
+  type ReactNode,
 } from "react";
-import { Sparkles } from "lucide-react";
+import { Check, ImagePlus, Ratio, Sparkles, X } from "lucide-react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Switch } from "@/components/ui/switch";
 import { useStudio } from "@/lib/store";
 import { cn } from "@/lib/utils";
-import { getMaxPromptLength, isVideoModel } from "@/lib/types";
+import { getMaxPromptLength, getModelConfig, isVideoModel } from "@/lib/types";
 import { useGenerationActions } from "./generation-actions";
 import { PendingImageJobsStrip } from "./pending-image-jobs-strip";
 import { PendingVideoJobsStrip } from "./pending-video-jobs-strip";
@@ -21,12 +24,105 @@ import { ModelCombobox } from "./model-combobox";
 import { AspectRatioCombobox } from "./aspect-ratio-combobox";
 import { BatchSizePopover } from "./batch-size-popover";
 import { MOBILE_BREAKPOINT } from "@/lib/constants";
+import { uploadReferenceImage } from "@/lib/services/reference-image-upload";
+import { toast } from "sonner";
 
 const COLLAPSED_TEXTAREA_HEIGHT = 63;
 const MAX_TEXTAREA_HEIGHT = 240;
 
+type VideoComposerControl = {
+  key: string;
+  label: string;
+  value: string;
+  options: string[];
+  onSelect: (value: string) => void;
+  icon: ReactNode;
+};
+
+function ComposerOptionPopover({
+  label,
+  value,
+  options,
+  onSelect,
+  icon,
+}: {
+  label: string;
+  value: string;
+  options: string[];
+  onSelect: (value: string) => void;
+  icon: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+
+  if (options.length <= 1) {
+    return null;
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            "flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium",
+            "text-muted-foreground hover:bg-muted hover:text-foreground",
+            "transition-colors",
+          )}
+          aria-label={`${label}: ${value}`}
+        >
+          {icon}
+          <span className="text-foreground font-semibold">{value}</span>
+        </button>
+      </PopoverTrigger>
+
+      <PopoverContent align="start" className="w-48 p-1.5">
+        <div className="flex flex-col gap-1">
+          {options.map((option) => {
+            const isSelected = option === value;
+
+            return (
+              <button
+                key={option}
+                type="button"
+                onClick={() => {
+                  onSelect(option);
+                  setOpen(false);
+                }}
+                className={cn(
+                  "flex w-full items-center justify-between rounded-md px-3 py-2 text-left transition-colors",
+                  isSelected
+                    ? "bg-accent text-accent-foreground"
+                    : "text-foreground hover:bg-muted",
+                )}
+              >
+                <div className="flex flex-col">
+                  <span className="text-sm font-medium">{option}</span>
+                  <span className="text-xs text-muted-foreground">{label}</span>
+                </div>
+                <Check
+                  className={cn(
+                    "size-4 text-primary transition-opacity",
+                    isSelected ? "opacity-100" : "opacity-0",
+                  )}
+                />
+              </button>
+            );
+          })}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 export function PromptComposer() {
-  const { state, setPrompt } = useStudio();
+  const {
+    state,
+    setPrompt,
+    setVideoImageUrl,
+    setVideoAspectRatio,
+    setVideoResolution,
+    setUseSelectedImageAsVideoReference,
+  } = useStudio();
   const { generateFromCurrentState } = useGenerationActions();
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -34,11 +130,102 @@ export function PromptComposer() {
   const [textareaHeight, setTextareaHeight] = useState(
     COLLAPSED_TEXTAREA_HEIGHT,
   );
+  const [isUploadingReferenceImage, setIsUploadingReferenceImage] = useState(false);
+  const [hasPendingReferenceImageUpload, setHasPendingReferenceImageUpload] =
+    useState(false);
+  const [pendingReferenceImageUrl, setPendingReferenceImageUrl] = useState<
+    string | null
+  >(null);
 
   const maxPromptLength = useMemo(
     () => getMaxPromptLength(state.model),
     [state.model],
   );
+
+  const modelConfig = useMemo(() => getModelConfig(state.model), [state.model]);
+  const supportsReferenceImagePaste = useMemo(
+    () => modelConfig?.kind === "video" && !!modelConfig.capabilities.imageUrl,
+    [modelConfig],
+  );
+  const canUseSelectedImageAsReference =
+    supportsReferenceImagePaste && state.selectedImage !== null;
+  const videoComposerControls = useMemo(() => {
+    if (modelConfig?.kind !== "video") return [];
+
+    const controls: VideoComposerControl[] = [];
+
+    if (modelConfig.capabilities.videoAspectRatios?.length) {
+      controls.push({
+        key: "ratio",
+        label: "Ratio",
+        value: state.videoAspectRatio,
+        options: modelConfig.capabilities.videoAspectRatios,
+        onSelect: setVideoAspectRatio,
+        icon: <Ratio className="size-4 opacity-50" />,
+      });
+    }
+
+    if (modelConfig.capabilities.resolutionOptions?.length) {
+      controls.push({
+        key: "quality",
+        label: "Quality",
+        value: state.videoResolution,
+        options: modelConfig.capabilities.resolutionOptions,
+        onSelect: setVideoResolution,
+        icon: <ImagePlus className="size-4 opacity-50" />,
+      });
+    }
+
+    return controls;
+  }, [
+    modelConfig,
+    setVideoAspectRatio,
+    setVideoResolution,
+    state.videoAspectRatio,
+    state.videoResolution,
+  ]);
+  const activeReferenceImages = useMemo(
+    () => [
+      state.videoImageUrl
+        ? {
+            key: "pasted",
+            label: "Pasted image",
+            imageUrl: state.videoImageUrl,
+            onRemove: () => setVideoImageUrl(""),
+          }
+        : null,
+      state.useSelectedImageAsVideoReference && state.selectedImage
+        ? {
+            key: "selected",
+            label: "Selected image",
+            imageUrl: state.selectedImage.imageUrl,
+            onRemove: () => setUseSelectedImageAsVideoReference(false),
+          }
+        : null,
+    ].filter(
+      (
+        item,
+      ): item is {
+        key: string;
+        label: string;
+        imageUrl: string;
+        onRemove: () => void;
+      } => item !== null,
+    ),
+    [
+      setUseSelectedImageAsVideoReference,
+      setVideoImageUrl,
+      state.selectedImage,
+      state.useSelectedImageAsVideoReference,
+      state.videoImageUrl,
+    ],
+  );
+  const hasReferencePreview =
+    isUploadingReferenceImage || activeReferenceImages.length > 0;
+  const isWaitingForReferenceImageState =
+    hasPendingReferenceImageUpload &&
+    (!pendingReferenceImageUrl || state.videoImageUrl !== pendingReferenceImageUrl);
+  const isReferenceImageReady = !isWaitingForReferenceImageState;
 
   useEffect(() => {
     if (window.innerWidth >= MOBILE_BREAKPOINT) {
@@ -46,11 +233,22 @@ export function PromptComposer() {
     }
   }, []);
 
-  const syncTextareaHeight = useCallback((expanded: boolean) => {
+  useEffect(() => {
+    if (
+      hasPendingReferenceImageUpload &&
+      pendingReferenceImageUrl &&
+      state.videoImageUrl === pendingReferenceImageUrl
+    ) {
+      setHasPendingReferenceImageUpload(false);
+      setPendingReferenceImageUrl(null);
+    }
+  }, [hasPendingReferenceImageUpload, pendingReferenceImageUrl, state.videoImageUrl]);
+
+  const syncTextareaHeight = useCallback((expanded: boolean, promptValue: string) => {
     const textarea = textareaRef.current;
     if (!textarea) return;
 
-    if (!textarea.value) {
+    if (!promptValue) {
       setTextareaHeight(COLLAPSED_TEXTAREA_HEIGHT);
       return;
     }
@@ -68,14 +266,46 @@ export function PromptComposer() {
   }, []);
 
   useLayoutEffect(() => {
-    syncTextareaHeight(isPromptFocused);
+    syncTextareaHeight(isPromptFocused, state.prompt);
   }, [isPromptFocused, state.prompt, syncTextareaHeight]);
 
   const handleGenerate = useCallback(() => {
-    void generateFromCurrentState();
-  }, [generateFromCurrentState]);
+    if (!state.prompt.trim() || !isReferenceImageReady) {
+      return;
+    }
 
-  const canGenerate = state.prompt.trim().length > 0;
+    void generateFromCurrentState();
+  }, [generateFromCurrentState, isReferenceImageReady, state.prompt]);
+
+  const handlePasteReferenceImage = useCallback(
+    async (file: File) => {
+      if (!supportsReferenceImagePaste) {
+        toast.error("This model does not support reference images");
+        return;
+      }
+
+      setHasPendingReferenceImageUpload(true);
+      setPendingReferenceImageUrl(null);
+      setIsUploadingReferenceImage(true);
+      try {
+        const imageUrl = await uploadReferenceImage(file);
+        setPendingReferenceImageUrl(imageUrl);
+        setVideoImageUrl(imageUrl);
+        toast.success("Reference image attached");
+      } catch (error) {
+        setHasPendingReferenceImageUpload(false);
+        setPendingReferenceImageUrl(null);
+        const message =
+          error instanceof Error ? error.message : "Failed to attach reference image";
+        toast.error(message);
+      } finally {
+        setIsUploadingReferenceImage(false);
+      }
+    },
+    [setVideoImageUrl, supportsReferenceImagePaste],
+  );
+
+  const canGenerate = state.prompt.trim().length > 0 && isReferenceImageReady;
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -122,6 +352,50 @@ export function PromptComposer() {
           )}
         >
           <motion.div layout className="px-3 sm:px-4 pt-0.5 pb-1">
+            {hasReferencePreview && (
+              <div className="mb-2 rounded-lg border border-border/60 bg-muted/40 px-2 py-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate text-xs text-muted-foreground">
+                    {isUploadingReferenceImage
+                      ? "Uploading reference image..."
+                      : `${activeReferenceImages.length} reference image${activeReferenceImages.length === 1 ? "" : "s"} ready`}
+                  </span>
+                  {isUploadingReferenceImage && (
+                    <div className="size-4 animate-pulse rounded bg-muted" />
+                  )}
+                </div>
+
+                {activeReferenceImages.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {activeReferenceImages.map((reference) => (
+                      <div
+                        key={reference.key}
+                        className="flex min-w-0 items-center gap-2 rounded-md border border-border/60 bg-background/70 px-2 py-1"
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={reference.imageUrl}
+                          alt={`${reference.label} preview`}
+                          className="size-7 rounded object-cover"
+                        />
+                        <span className="max-w-28 truncate text-xs text-muted-foreground">
+                          {reference.label}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={reference.onRemove}
+                          className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                          aria-label={`Remove ${reference.label.toLowerCase()}`}
+                        >
+                          <X className="size-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             <textarea
               ref={textareaRef}
               value={state.prompt}
@@ -167,6 +441,22 @@ export function PromptComposer() {
                 }
               }}
               onPaste={(event) => {
+                const clipboardItems = event.clipboardData?.items;
+                if (supportsReferenceImagePaste) {
+                  const imageItem = Array.from(clipboardItems ?? []).find((item) =>
+                    item.type.startsWith("image/"),
+                  );
+
+                  if (imageItem) {
+                    const file = imageItem.getAsFile();
+                    if (file) {
+                      event.preventDefault();
+                      void handlePasteReferenceImage(file);
+                      return;
+                    }
+                  }
+                }
+
                 const paste = event.clipboardData.getData("text");
                 const textarea = event.currentTarget;
                 const start = textarea.selectionStart;
@@ -224,6 +514,26 @@ export function PromptComposer() {
                     <div className="w-px h-4 bg-border mx-0.5 shrink-0" />
                     <BatchSizePopover />
                   </>
+                )}
+                {videoComposerControls.map((control) => (
+                  <ComposerOptionPopover
+                    key={control.key}
+                    label={control.label}
+                    value={control.value}
+                    options={control.options}
+                    onSelect={control.onSelect}
+                    icon={control.icon}
+                  />
+                ))}
+                {canUseSelectedImageAsReference && (
+                  <div className="ml-1 inline-flex items-center gap-2 rounded-full border border-border/60 bg-muted/40 px-3 py-1 text-xs text-muted-foreground">
+                    <span>Use Image</span>
+                    <Switch
+                      checked={state.useSelectedImageAsVideoReference}
+                      onCheckedChange={setUseSelectedImageAsVideoReference}
+                      aria-label="Use selected image as video reference"
+                    />
+                  </div>
                 )}
               </div>
 

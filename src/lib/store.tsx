@@ -51,6 +51,7 @@ export interface StudioState {
   generateAudio: boolean;
   videoImageUrl: string;
   videoAudioUrl: string;
+  useSelectedImageAsVideoReference: boolean;
   videoShotType: VideoShotType;
   // Status
   status: GenerationStatus;
@@ -86,6 +87,7 @@ export const initialState: StudioState = {
   generateAudio: false,
   videoImageUrl: "",
   videoAudioUrl: "",
+  useSelectedImageAsVideoReference: false,
   videoShotType: "single",
   // Status
   status: "idle",
@@ -123,6 +125,7 @@ export type StudioAction =
   | { type: "SET_GENERATE_AUDIO"; payload: boolean }
   | { type: "SET_VIDEO_IMAGE_URL"; payload: string }
   | { type: "SET_VIDEO_AUDIO_URL"; payload: string }
+  | { type: "SET_USE_SELECTED_IMAGE_AS_VIDEO_REFERENCE"; payload: boolean }
   | { type: "SET_VIDEO_SHOT_TYPE"; payload: VideoShotType }
   // Lifecycle
   | { type: "START_GENERATION" }
@@ -176,6 +179,7 @@ export function applyModelDefaults(
     overrides.generateAudio = false;
     overrides.videoImageUrl = "";
     overrides.videoAudioUrl = "";
+    overrides.useSelectedImageAsVideoReference = false;
     overrides.videoShotType = "single";
     overrides.numberOfImages = 1;
   }
@@ -265,6 +269,8 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
       return { ...state, videoImageUrl: action.payload };
     case "SET_VIDEO_AUDIO_URL":
       return { ...state, videoAudioUrl: action.payload };
+    case "SET_USE_SELECTED_IMAGE_AS_VIDEO_REFERENCE":
+      return { ...state, useSelectedImageAsVideoReference: action.payload };
     case "SET_VIDEO_SHOT_TYPE":
       return { ...state, videoShotType: action.payload };
     case "START_GENERATION":
@@ -279,16 +285,30 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
     case "FAIL_GENERATION":
       return { ...state, status: "error", error: action.payload };
     case "SELECT_IMAGE":
-      return { ...state, selectedImage: action.payload };
+      return {
+        ...state,
+        selectedImage: action.payload,
+        useSelectedImageAsVideoReference:
+          action.payload === null ? false : state.useSelectedImageAsVideoReference,
+      };
     case "REMOVE_IMAGE":
       return {
         ...state,
         history: state.history.filter((img) => img.id !== action.payload),
         selectedImage:
           state.selectedImage?.id === action.payload ? null : state.selectedImage,
+        useSelectedImageAsVideoReference:
+          state.selectedImage?.id === action.payload
+            ? false
+            : state.useSelectedImageAsVideoReference,
       };
     case "CLEAR_HISTORY":
-      return { ...state, history: [], selectedImage: null };
+      return {
+        ...state,
+        history: [],
+        selectedImage: null,
+        useSelectedImageAsVideoReference: false,
+      };
     case "TOGGLE_HISTORY":
       return { ...state, isHistoryOpen: !state.isHistoryOpen };
     case "TOGGLE_CONTROLS":
@@ -335,6 +355,7 @@ interface StudioContextValue {
   setGenerateAudio: (enabled: boolean) => void;
   setVideoImageUrl: (url: string) => void;
   setVideoAudioUrl: (url: string) => void;
+  setUseSelectedImageAsVideoReference: (enabled: boolean) => void;
   setVideoShotType: (t: VideoShotType) => void;
   // Lifecycle
   startGeneration: () => void;
@@ -472,6 +493,14 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     (url: string) => dispatch({ type: "SET_VIDEO_AUDIO_URL", payload: url }),
     [],
   );
+  const setUseSelectedImageAsVideoReference = useCallback(
+    (enabled: boolean) =>
+      dispatch({
+        type: "SET_USE_SELECTED_IMAGE_AS_VIDEO_REFERENCE",
+        payload: enabled,
+      }),
+    [],
+  );
   const setVideoShotType = useCallback(
     (t: VideoShotType) => dispatch({ type: "SET_VIDEO_SHOT_TYPE", payload: t }),
     [],
@@ -553,6 +582,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     setGenerateAudio,
     setVideoImageUrl,
     setVideoAudioUrl,
+    setUseSelectedImageAsVideoReference,
     setVideoShotType,
     startGeneration,
     completeGeneration,

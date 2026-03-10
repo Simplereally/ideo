@@ -10,19 +10,18 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useStudio } from "@/lib/store";
-import { useProviderStatus } from "@/hooks/use-provider-status";
+import { useConfiguredProviders } from "@/hooks/use-configured-providers";
 import { cn } from "@/lib/utils";
 
 export function StudioHeader() {
   const { openApiKeyDialog } = useStudio();
-  const { status } = useProviderStatus();
+  const { configuredProviders } = useConfiguredProviders();
   const { resolvedTheme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => setMounted(true), []);
 
-  const hasConfiguredProviders =
-    status.google || status.vertex || status.fal || status.aiml;
+  const hasConfiguredProviders = configuredProviders.length > 0;
 
   const toggleTheme = () => {
     setTheme(resolvedTheme === "dark" ? "light" : "dark");

@@ -75,6 +75,19 @@ export interface BuildHistoryPanelViewModelInput {
   selectedImageJobId: string | null;
 }
 
+function getItemCreatedAt(item: HistoryPanelItem): number {
+  switch (item.kind) {
+    case "saved-image":
+      return item.image.createdAt;
+    case "video-job":
+      return item.job.createdAt;
+    case "image-job":
+      return item.job.createdAt;
+    default:
+      return 0;
+  }
+}
+
 const ACTIVE_VIDEO_STATUSES: ReadonlySet<VideoGenerationStatus> = new Set([
   "queued",
   "generating",
@@ -238,7 +251,7 @@ export function buildHistoryPanelViewModel({
   const failureItems = [
     ...imageJobItemsByBucket.failure,
     ...videoItemsByBucket.failure,
-  ];
+  ].sort((left, right) => getItemCreatedAt(right) - getItemCreatedAt(left));
   if (failureItems.length > 0) {
     sectionsInput.push({
       id: "failures",

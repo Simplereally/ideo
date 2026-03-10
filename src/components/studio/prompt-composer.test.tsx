@@ -28,7 +28,7 @@
  *   model-specific limits (e.g. Wan models with maxPromptLength: 2000).
  */
 
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // ---------------------------------------------------------------------------
@@ -132,6 +132,12 @@ vi.mock("sonner", () => ({
   toast: { error: vi.fn(), success: vi.fn() },
 }));
 
+const mockUploadReferenceImage = vi.fn();
+
+vi.mock("@/lib/services/reference-image-upload", () => ({
+  uploadReferenceImage: (file: File) => mockUploadReferenceImage(file),
+}));
+
 vi.mock("./generation-actions", () => ({
   useGenerationActions: () => ({
     generateFromCurrentState: vi.fn(),
@@ -163,7 +169,6 @@ vi.mock("./pending-video-jobs-strip", () => ({
 
 // We import after mocks are set up
 import { PromptComposer } from "./prompt-composer";
-import { useStudio } from "@/lib/store";
 import { DEFAULT_MAX_PROMPT_LENGTH, getMaxPromptLength } from "@/lib/types";
 
 // Create a thin wrapper that provides StudioContext with controllable prompt state.
@@ -171,7 +176,20 @@ import { DEFAULT_MAX_PROMPT_LENGTH, getMaxPromptLength } from "@/lib/types";
 
 let mockPrompt = "";
 let mockModel = "google:imagen-4.0-generate-001";
+let mockSelectedImage: null | {
+  id: string;
+  prompt: string;
+  imageUrl: string;
+  aspectRatio: "1:1";
+  model: string;
+  provider: "google";
+  createdAt: number;
+} = null;
+let mockUseSelectedImageAsVideoReference = false;
+let mockVideoImageUrl = "";
 let mockSetPrompt: (p: string) => void;
+let mockSetUseSelectedImageAsVideoReference: (enabled: boolean) => void;
+let mockSetVideoImageUrl: (url: string) => void;
 const mockOpenApiKeyDialog = vi.fn();
 const mockToggleControls = vi.fn();
 
@@ -195,13 +213,14 @@ vi.mock("@/lib/store", () => ({
       videoResolution: "720p",
       videoAspectRatio: "16:9",
       generateAudio: false,
-      videoImageUrl: "",
+      videoImageUrl: mockVideoImageUrl,
       videoAudioUrl: "",
+      useSelectedImageAsVideoReference: mockUseSelectedImageAsVideoReference,
       videoShotType: "single",
       status: "idle",
       error: null,
       history: [],
-      selectedImage: null,
+      selectedImage: mockSelectedImage,
       isHistoryOpen: false,
       isControlsOpen: false,
       isApiKeyDialogOpen: false,
@@ -229,8 +248,10 @@ vi.mock("@/lib/store", () => ({
     setVideoResolution: vi.fn(),
     setVideoAspectRatio: vi.fn(),
     setGenerateAudio: vi.fn(),
-    setVideoImageUrl: vi.fn(),
+    setVideoImageUrl: (url: string) => mockSetVideoImageUrl(url),
     setVideoAudioUrl: vi.fn(),
+    setUseSelectedImageAsVideoReference: (enabled: boolean) =>
+      mockSetUseSelectedImageAsVideoReference(enabled),
     setVideoShotType: vi.fn(),
     selectImage: vi.fn(),
     removeImage: vi.fn(),
@@ -285,6 +306,21 @@ function simulatePaste(
   return fireEvent(textarea, pasteEvent);
 }
 
+function simulateImagePaste(textarea: HTMLTextAreaElement, file: File) {
+  const pasteEvent = new Event("paste", { bubbles: true, cancelable: true }) as any;
+  pasteEvent.clipboardData = {
+    getData: () => "",
+    items: [
+      {
+        type: file.type,
+        getAsFile: () => file,
+      },
+    ],
+  };
+
+  return fireEvent(textarea, pasteEvent);
+}
+
 /**
  * Simulate a keydown event for a printable character on a textarea.
  * Optionally set selection range before the keydown.
@@ -318,6 +354,9 @@ describe("PromptComposer character limit", () => {
   beforeEach(() => {
     mockPrompt = "";
     mockModel = "google:imagen-4.0-generate-001";
+    mockSelectedImage = null;
+    mockUseSelectedImageAsVideoReference = false;
+    mockVideoImageUrl = "";
     Object.defineProperty(window, "innerWidth", {
       configurable: true,
       writable: true,
@@ -326,6 +365,11 @@ describe("PromptComposer character limit", () => {
     mockSetPrompt = vi.fn((p: string) => {
       mockPrompt = p;
     });
+    mockSetUseSelectedImageAsVideoReference = vi.fn((enabled: boolean) => {
+      mockUseSelectedImageAsVideoReference = enabled;
+    });
+    mockSetVideoImageUrl = vi.fn();
+    mockUploadReferenceImage.mockReset();
     mockOpenApiKeyDialog.mockClear();
     mockToggleControls.mockClear();
   });
@@ -360,6 +404,123 @@ describe("PromptComposer character limit", () => {
     render(<PromptComposer />);
 
     expect(getTextarea()).toHaveFocus();
+  });
+
+  it("shows a toggle for the selected history image when a video model supports references", () => {
+    mockModel = "airforce:grok-imagine-video";
+    mockSelectedImage = {
+      id: "history-image-1",
+      prompt: "History image prompt",
+      imageUrl: "https://example.com/history.png",
+      aspectRatio: "1:1",
+      model: "google:imagen-4.0-generate-001",
+      provider: "google",
+      createdAt: Date.now(),
+    };
+
+    render(<PromptComposer />);
+
+    expect(screen.getByLabelText("Use selected image as video reference")).toBeInTheDocument();
+    expect(screen.getByText("Use Image")).toBeInTheDocument();
+  });
+
+  it("shows the active selected reference image in the composer", () => {
+    mockModel = "airforce:grok-imagine-video";
+    mockUseSelectedImageAsVideoReference = true;
+    mockSelectedImage = {
+      id: "history-image-2",
+      prompt: "History image prompt",
+      imageUrl: "https://example.com/history.png",
+      aspectRatio: "1:1",
+      model: "google:imagen-4.0-generate-001",
+      provider: "google",
+      createdAt: Date.now(),
+    };
+
+    render(<PromptComposer />);
+
+    expect(screen.getByText("1 reference image ready")).toBeInTheDocument();
+    expect(screen.getByText("Selected image")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /remove selected image/i })).toBeInTheDocument();
+  });
+
+  it("shows compact ratio and quality selectors for video models with those capabilities", () => {
+    mockModel = "airforce:grok-imagine-video";
+
+    render(<PromptComposer />);
+
+    expect(screen.getByLabelText("Ratio: 16:9")).toBeInTheDocument();
+    expect(screen.getByLabelText("Quality: 720p")).toBeInTheDocument();
+  });
+
+  it("disables generation until a pasted reference image is stored in state", async () => {
+    mockModel = "airforce:grok-imagine-video";
+    mockPrompt = "Make it cinematic";
+
+    let resolveUpload!: (value: string) => void;
+    const uploadPromise = new Promise<string>((resolve) => {
+      resolveUpload = resolve;
+    });
+    mockUploadReferenceImage.mockReturnValueOnce(uploadPromise);
+
+    const { rerender } = render(<PromptComposer />);
+    const textarea = getTextarea();
+    const generateButton = screen.getByRole("button", { name: /generate/i });
+    const file = new File(["image-bytes"], "reference.png", { type: "image/png" });
+
+    expect(generateButton).toBeEnabled();
+
+    simulateImagePaste(textarea, file);
+
+    await waitFor(() => expect(mockUploadReferenceImage).toHaveBeenCalledWith(file));
+    await waitFor(() => expect(generateButton).toBeDisabled());
+
+    await act(async () => {
+      resolveUpload("https://example.com/pasted.png");
+      await uploadPromise;
+    });
+
+    expect(mockSetVideoImageUrl).toHaveBeenCalledWith("https://example.com/pasted.png");
+    expect(generateButton).toBeDisabled();
+
+    mockVideoImageUrl = "https://example.com/pasted.png";
+    rerender(<PromptComposer />);
+
+    await waitFor(() => expect(generateButton).toBeEnabled());
+  });
+
+  it("re-enables generation when a pasted reference image upload fails", async () => {
+    mockModel = "airforce:grok-imagine-video";
+    mockPrompt = "Make it cinematic";
+
+    let rejectUpload!: (reason?: unknown) => void;
+    const uploadPromise = new Promise<string>((_, reject) => {
+      rejectUpload = reject;
+    });
+    mockUploadReferenceImage.mockReturnValueOnce(uploadPromise);
+
+    render(<PromptComposer />);
+    const textarea = getTextarea();
+    const generateButton = screen.getByRole("button", { name: /generate/i });
+    const file = new File(["image-bytes"], "reference.png", { type: "image/png" });
+
+    simulateImagePaste(textarea, file);
+
+    await waitFor(() => expect(mockUploadReferenceImage).toHaveBeenCalledWith(file));
+    await waitFor(() => expect(generateButton).toBeDisabled());
+
+    await act(async () => {
+      rejectUpload(new Error("Upload failed"));
+      try {
+        await uploadPromise;
+      } catch {
+        // Expected rejection for this test.
+      }
+    });
+
+    await waitFor(() => expect(generateButton).toBeEnabled());
+
+    expect(mockSetVideoImageUrl).not.toHaveBeenCalled();
   });
 
   // ---- 1. Basic typing under limit ----

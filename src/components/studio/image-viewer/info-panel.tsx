@@ -45,7 +45,7 @@ export function InfoPanel({
     <aside
       className={cn(
         `flex h-full w-[${INFO_PANEL_WIDTH}px] shrink-0 flex-col overflow-hidden`,
-        "border-r border-border/50 bg-card/40 backdrop-blur-xl",
+        "border-r border-border/50 bg-card/95",
         className
       )}
     >

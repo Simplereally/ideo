@@ -103,6 +103,7 @@ const PendingCard = memo(function PendingCard({
   onSelect: (id: string) => void;
 }) {
   const isQueued = job.status === "queued";
+  const isSubmitting = job.requestPending === true;
   const elapsed = formatElapsed(job.createdAt, now);
   const providerLabel = PROVIDER_SHORT_LABELS[job.provider] ?? job.provider;
   const accent = PROVIDER_ACCENT[job.provider];
@@ -162,7 +163,7 @@ const PendingCard = memo(function PendingCard({
         <div className="flex items-center gap-1 text-[10px] leading-none">
           <span className={cn("size-[5px] rounded-full shrink-0", accent.dot)} />
           <span className="text-muted-foreground/70 truncate">
-            {providerLabel} · {isQueued ? "Queued" : "Generating"} · {getModelLabel(job.model)}
+            {providerLabel} · {isSubmitting ? "Submitting" : isQueued ? "Queued" : "Generating"} · {getModelLabel(job.model)}
           </span>
           <span className="mx-0.5" />
           <span
@@ -179,6 +180,7 @@ const PendingCard = memo(function PendingCard({
       <button
         type="button"
         onClick={handleCancel}
+        disabled={isSubmitting}
         className={cn(
           "flex items-center justify-center size-[18px] rounded-md shrink-0",
           "text-muted-foreground/40",
@@ -186,7 +188,7 @@ const PendingCard = memo(function PendingCard({
           "hover:text-destructive hover:bg-destructive/10",
           "active:bg-destructive/15 active:scale-95",
           "transition-[opacity,color,background-color] duration-75",
-          "cursor-pointer",
+          isSubmitting ? "cursor-not-allowed opacity-30" : "cursor-pointer",
         )}
         aria-label="Cancel video generation"
       >

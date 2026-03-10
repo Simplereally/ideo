@@ -1,6 +1,13 @@
 "use client";
 
-import { useState, type FocusEvent, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FocusEvent,
+  type ReactNode,
+} from "react";
 import {
   X,
   Aperture,
@@ -489,6 +496,11 @@ function SectionDivider({ label }: { label: string }) {
 }
 
 const HISTORY_WIDTH = 320;
+const HISTORY_PAGE_SIZE = 20;
+const SAVED_IMAGE_ROW_HEIGHT = 72;
+const VIRTUALIZATION_OVERSCAN = 6;
+const INFINITE_SCROLL_THRESHOLD = 240;
+const FALLBACK_VIEWPORT_HEIGHT = 640;
 
 const PANEL_TRANSITION = {
   width: {
@@ -510,6 +522,28 @@ export function HistoryPanel({ overlay }: { overlay?: boolean } = {}) {
   const { retryImageJob, retryVideoJob } = useGenerationActions();
   const isMobile = useIsMobile();
   const [filter, setFilter] = useState<HistoryFilter>("all");
+  const [savedImagePages, setSavedImagePages] = useState(1);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(0);
+  const [imagesSectionOffsetTop, setImagesSectionOffsetTop] = useState(0);
+  const scrollAreaHostRef = useRef<HTMLDivElement | null>(null);
+  const imagesSectionRef = useRef<HTMLDivElement | null>(null);
+
+  const maxSavedImagePages = Math.max(
+    1,
+    Math.ceil(state.history.length / HISTORY_PAGE_SIZE),
+  );
+
+  const paginatedSavedImages = useMemo(
+    () => state.history.slice(0, savedImagePages * HISTORY_PAGE_SIZE),
+    [state.history, savedImagePages],
+  );
+
+  const hasMoreSavedImages = paginatedSavedImages.length < state.history.length;
+
+  useEffect(() => {
+    setSavedImagePages((current) => Math.min(current, maxSavedImagePages));
+  }, [maxSavedImagePages]);
 
   const videoJobs = useVideoJobsStore((store) => store.jobs);
   const selectedJobId = useVideoJobsStore((store) => store.selectedJobId);
@@ -531,13 +565,89 @@ export function HistoryPanel({ overlay }: { overlay?: boolean } = {}) {
 
   const viewModel = buildHistoryPanelViewModel({
     filter,
-    savedImages: state.history,
+    savedImages: paginatedSavedImages,
     selectedImageId: state.selectedImage?.id ?? null,
     videoJobs,
     selectedVideoJobId: selectedJobId,
     imageJobs,
     selectedImageJobId,
   });
+
+  const imagesSection = viewModel.sections.find((section) => section.id === "images");
+  const loadedImageCount = imagesSection?.items.length ?? 0;
+  const hasImagesSection = loadedImageCount > 0;
+
+  useEffect(() => {
+    const host = scrollAreaHostRef.current;
+    if (!host) {
+      return;
+    }
+
+    const viewportElement = host.querySelector<HTMLDivElement>(
+      "[data-slot='scroll-area-viewport']",
+    );
+
+    if (!viewportElement) {
+      return;
+    }
+
+    const viewport = viewportElement;
+
+    function syncScrollMetrics() {
+      setScrollTop(viewport.scrollTop);
+      setViewportHeight(viewport.clientHeight);
+
+      if (imagesSectionRef.current) {
+        setImagesSectionOffsetTop(imagesSectionRef.current.offsetTop);
+      }
+
+      if (
+        hasMoreSavedImages &&
+        hasImagesSection &&
+        viewport.scrollTop + viewport.clientHeight >=
+          viewport.scrollHeight - INFINITE_SCROLL_THRESHOLD
+      ) {
+        setSavedImagePages((current) =>
+          current < maxSavedImagePages ? current + 1 : current,
+        );
+      }
+    }
+
+    syncScrollMetrics();
+    viewport.addEventListener("scroll", syncScrollMetrics, { passive: true });
+    window.addEventListener("resize", syncScrollMetrics);
+
+    return () => {
+      viewport.removeEventListener("scroll", syncScrollMetrics);
+      window.removeEventListener("resize", syncScrollMetrics);
+    };
+  }, [
+    filter,
+    hasImagesSection,
+    hasMoreSavedImages,
+    maxSavedImagePages,
+    loadedImageCount,
+  ]);
+
+  const effectiveViewportHeight =
+    viewportHeight > 0 ? viewportHeight : FALLBACK_VIEWPORT_HEIGHT;
+  const imageScrollTop = Math.max(scrollTop - imagesSectionOffsetTop, 0);
+  const estimatedStartIndex =
+    Math.floor(imageScrollTop / SAVED_IMAGE_ROW_HEIGHT) - VIRTUALIZATION_OVERSCAN;
+  const virtualStartIndex = Math.min(
+    loadedImageCount,
+    Math.max(0, estimatedStartIndex),
+  );
+  const estimatedEndIndex =
+    Math.ceil((imageScrollTop + effectiveViewportHeight) / SAVED_IMAGE_ROW_HEIGHT) +
+    VIRTUALIZATION_OVERSCAN;
+  const virtualEndIndex = Math.max(
+    virtualStartIndex,
+    Math.min(loadedImageCount, estimatedEndIndex),
+  );
+  const topSpacerHeight = virtualStartIndex * SAVED_IMAGE_ROW_HEIGHT;
+  const bottomSpacerHeight =
+    (loadedImageCount - virtualEndIndex) * SAVED_IMAGE_ROW_HEIGHT;
 
   function closeOverlayAfterSelection() {
     if (overlay && isMobile && state.isHistoryOpen) {
@@ -688,16 +798,38 @@ export function HistoryPanel({ overlay }: { overlay?: boolean } = {}) {
               </div>
             </div>
           ) : (
-            <ScrollArea className="flex-1 ios-list min-h-0">
-              <div className="flex flex-col">
-                {viewModel.sections.map((section) => (
-                  <div key={section.id}>
-                    {section.showDivider && <SectionDivider label={section.label} />}
-                    {section.items.map((item) => renderSectionItem(item))}
-                  </div>
-                ))}
-              </div>
-            </ScrollArea>
+            <div ref={scrollAreaHostRef} className="h-full">
+              <ScrollArea className="h-full ios-list">
+                <div className="flex flex-col">
+                  {viewModel.sections.map((section) => (
+                    <div
+                      key={section.id}
+                      ref={section.id === "images" ? imagesSectionRef : undefined}
+                    >
+                      {section.showDivider && <SectionDivider label={section.label} />}
+
+                      {section.id === "images" ? (
+                        <>
+                          {topSpacerHeight > 0 ? (
+                            <div style={{ height: topSpacerHeight }} aria-hidden />
+                          ) : null}
+
+                          {section.items
+                            .slice(virtualStartIndex, virtualEndIndex)
+                            .map((item) => renderSectionItem(item))}
+
+                          {bottomSpacerHeight > 0 ? (
+                            <div style={{ height: bottomSpacerHeight }} aria-hidden />
+                          ) : null}
+                        </>
+                      ) : (
+                        section.items.map((item) => renderSectionItem(item))
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </ScrollArea>
+            </div>
           )}
         </div>
       )}

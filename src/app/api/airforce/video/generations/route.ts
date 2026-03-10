@@ -4,7 +4,15 @@ import { isAllowedModel } from "@/lib/server/model-allowlist";
 import { extractApiKey } from "@/lib/server/extract-credentials";
 import { generationLimiter, getClientIp, rateLimitResponse } from "@/lib/server/rate-limit";
 import { resolveApiKey } from "@/lib/server/resolve-keys";
+import { retryOn429 } from "@/lib/retry-on-429";
 import {
+  logGenerationProviderError,
+  logGenerationRequest,
+  logGenerationResponse,
+  logGenerationTextResponse,
+} from "@/lib/server/generation-debug";
+import {
+  AirforceVideoProviderError,
   buildAirforceVideoRequest,
   extractAirforceVideoItems,
   isSupportedAirforceVideoModel,
@@ -26,10 +34,6 @@ interface UpstreamErrorDetail {
   upstreamBody?: unknown;
 }
 
-/**
- * Parse upstream error response and return structured detail.
- * Preserves full upstream JSON payload when available for diagnostics.
- */
 async function parseUpstreamError(upstream: Response): Promise<UpstreamErrorDetail> {
   const rawText = await upstream.text().catch(() => "");
   const fallbackMessage = `Airforce API returned HTTP ${upstream.status}`;
@@ -41,40 +45,74 @@ async function parseUpstreamError(upstream: Response): Promise<UpstreamErrorDeta
     };
   }
 
-  // Attempt to parse as JSON for structured error info
   try {
-    const parsed = JSON.parse(rawText) as Record<string, unknown>;
+    const parsed = JSON.parse(rawText) as {
+      message?: string;
+      detail?: string;
+      details?: unknown;
+      error?: string | { message?: string; detail?: string; details?: unknown };
+    };
 
-    // Extract a human-readable message from common error shapes
-    let message: string | undefined;
     if (typeof parsed.error === "string") {
-      message = parsed.error;
-    } else if (
-      parsed.error &&
-      typeof parsed.error === "object" &&
-      "message" in parsed.error &&
-      typeof (parsed.error as { message?: unknown }).message === "string"
-    ) {
-      message = (parsed.error as { message: string }).message;
-    } else if (typeof parsed.message === "string") {
-      message = parsed.message;
-    } else if (typeof parsed.detail === "string") {
-      message = parsed.detail;
+      return {
+        message: parsed.error,
+        upstreamStatus: upstream.status,
+        upstreamBody: parsed,
+      };
+    }
+
+    if (parsed.error && typeof parsed.error === "object" && parsed.error.message) {
+      const detailText =
+        typeof parsed.error.detail === "string" ? ` - ${parsed.error.detail}` : "";
+      return {
+        message: `${parsed.error.message}${detailText}`,
+        upstreamStatus: upstream.status,
+        upstreamBody: parsed.error.details ?? parsed,
+      };
+    }
+
+    if (parsed.message) {
+      return {
+        message: parsed.message,
+        upstreamStatus: upstream.status,
+        upstreamBody: parsed.details ?? parsed,
+      };
+    }
+
+    if (parsed.detail) {
+      return {
+        message: parsed.detail,
+        upstreamStatus: upstream.status,
+        upstreamBody: parsed.details ?? parsed,
+      };
     }
 
     return {
-      message: message ?? fallbackMessage,
+      message: fallbackMessage,
       upstreamStatus: upstream.status,
       upstreamBody: parsed,
     };
   } catch {
-    // Not JSON; return truncated raw text
     return {
       message: rawText.slice(0, 500) || fallbackMessage,
       upstreamStatus: upstream.status,
       upstreamBody: rawText.slice(0, 1000),
     };
   }
+}
+
+function normalizeRouteBody(body: RouteBody): VideoRequestParams {
+  const imageUrlsFromArray = Array.isArray(body.image_urls)
+    ? body.image_urls.filter(
+        (value): value is string => typeof value === "string" && value.trim().length > 0,
+      )
+    : undefined;
+
+  return {
+    ...body,
+    imageUrl: body.imageUrl ?? imageUrlsFromArray?.[0],
+    imageUrls: body.imageUrls ?? imageUrlsFromArray,
+  };
 }
 
 export async function POST(request: Request) {
@@ -89,28 +127,18 @@ export async function POST(request: Request) {
   }
 
   const clientKey = extractApiKey(body);
-  const keyResult = resolveApiKey(
-    clientKey,
-    process.env.AIRFORCE_API_KEY,
-    "Airforce",
-  );
+  const keyResult = resolveApiKey(clientKey, process.env.AIRFORCE_API_KEY, "Airforce");
   if (!keyResult.ok) {
     return NextResponse.json({ error: keyResult.error }, { status: 401 });
   }
   const apiKey = keyResult.value;
 
   if (!body.model || typeof body.model !== "string" || !body.prompt?.trim()) {
-    return NextResponse.json(
-      { error: "`model` and `prompt` are required" },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: "`model` and `prompt` are required" }, { status: 400 });
   }
 
   if (!isAllowedModel("airforce", body.model)) {
-    return NextResponse.json(
-      { error: `Invalid model: ${body.model}` },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: `Invalid model: ${body.model}` }, { status: 400 });
   }
 
   if (!isSupportedAirforceVideoModel(body.model)) {
@@ -121,27 +149,25 @@ export async function POST(request: Request) {
   }
 
   try {
-    const normalizedBody: VideoRequestParams = {
-      ...body,
-      imageUrl:
-        body.imageUrl ??
-        (Array.isArray(body.image_urls) && typeof body.image_urls[0] === "string"
-          ? body.image_urls[0]
-          : undefined),
-    };
-    const upstreamBody = buildAirforceVideoRequest(body.model, normalizedBody);
-    const upstream = await fetch(UPSTREAM, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(upstreamBody),
-    });
+    const normalizedBody = normalizeRouteBody(body);
+    const upstreamBody = await buildAirforceVideoRequest(body.model, normalizedBody);
+    logGenerationRequest("POST api/airforce/video/generations", upstreamBody);
+
+    const upstream = await retryOn429(() =>
+      fetch(UPSTREAM, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(upstreamBody),
+      }),
+    );
 
     if (!upstream.ok) {
       const errorDetail = await parseUpstreamError(upstream);
-      // Include sent request shape for 500-class errors to aid contract debugging
+      logGenerationResponse("POST api/airforce/video/generations", errorDetail);
+
       const responseBody: Record<string, unknown> = {
         error: errorDetail.message,
         upstreamStatus: errorDetail.upstreamStatus,
@@ -150,11 +176,20 @@ export async function POST(request: Request) {
       if (upstream.status >= 500) {
         responseBody.sentRequestBody = upstreamBody;
       }
+
       return NextResponse.json(responseBody, { status: upstream.status });
     }
 
     const rawText = await upstream.text();
+    logGenerationTextResponse(
+      "POST api/airforce/video/generations",
+      upstream.status,
+      rawText,
+    );
+
     const items = extractAirforceVideoItems(rawText);
+    logGenerationResponse("POST api/airforce/video/generations", items);
+
     if (items.length === 0) {
       return NextResponse.json(
         { error: "No video output generated by Airforce API" },
@@ -190,6 +225,24 @@ export async function POST(request: Request) {
 
     return NextResponse.json(result);
   } catch (error) {
+    if (error instanceof AirforceVideoProviderError) {
+      logGenerationProviderError(
+        "POST api/airforce/video/generations",
+        200,
+        error.httpStatus,
+        error.providerPayload,
+      );
+
+      return NextResponse.json(
+        {
+          error: error.message,
+          upstreamStatus: error.httpStatus,
+          upstreamBody: error.providerPayload,
+        },
+        { status: error.httpStatus },
+      );
+    }
+
     const message =
       error instanceof Error ? error.message : "Airforce video generation failed";
     return NextResponse.json({ error: message }, { status: 502 });

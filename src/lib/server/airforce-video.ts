@@ -7,9 +7,101 @@ const SUPPORTED_AIRFORCE_VIDEO_MODELS = new Set([
   "wan-2.6",
 ]);
 
+const GROK_VIDEO_ASPECT_RATIOS = new Set(["3:2", "2:3"]);
+const GROK_VIDEO_RESOLUTION_TO_SIZE = {
+  "3:2": {
+    "480p": "854x480",
+    "720p": "1280x720",
+    "1080p": "1920x1080",
+  },
+  "2:3": {
+    "480p": "480x854",
+    "720p": "720x1280",
+    "1080p": "1080x1920",
+  },
+} as const;
+
 export interface AirforceMediaItem {
-  url?: string;
-  b64_json?: string;
+  url?: string | null;
+  b64_json?: string | null;
+}
+
+interface ProviderErrorPayload {
+  message?: string;
+  detail?: string;
+  details?: unknown;
+  status?: number;
+  statusCode?: number;
+  code?: number | string;
+}
+
+export class AirforceVideoProviderError extends Error {
+  constructor(
+    public readonly httpStatus: number,
+    public readonly providerPayload: unknown,
+    message: string,
+  ) {
+    super(message);
+    this.name = "AirforceVideoProviderError";
+  }
+}
+
+function extractErrorStatus(value: unknown): number | null {
+  if (!value || typeof value !== "object") return null;
+
+  const payload = value as ProviderErrorPayload;
+  if (typeof payload.status === "number") return payload.status;
+  if (typeof payload.statusCode === "number") return payload.statusCode;
+  if (typeof payload.code === "number") return payload.code;
+  if (typeof payload.code === "string") {
+    const parsed = Number.parseInt(payload.code, 10);
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+
+  return null;
+}
+
+function stringifyUnknown(value: unknown): string {
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function extractErrorMessage(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (!value || typeof value !== "object") return "Airforce video generation failed";
+
+  const payload = value as ProviderErrorPayload & { error?: unknown };
+  const parts = [payload.message, payload.detail].filter(
+    (part): part is string => typeof part === "string" && part.trim().length > 0,
+  );
+
+  if (parts.length > 0) {
+    if (payload.details !== undefined) {
+      return `${parts.join(" - ")} | ${stringifyUnknown(payload.details)}`;
+    }
+
+    return parts.join(" - ");
+  }
+
+  if (payload.details !== undefined) {
+    return stringifyUnknown(payload.details);
+  }
+
+  return stringifyUnknown(value);
+}
+
+function toProviderError(value: unknown): AirforceVideoProviderError {
+  const message = extractErrorMessage(value);
+  const explicitStatus = extractErrorStatus(value);
+  const statusFromMessage = /(?:^|\()(\d{3})\s/.exec(message)?.[1];
+  const httpStatus =
+    explicitStatus ?? (statusFromMessage ? Number.parseInt(statusFromMessage, 10) : 502);
+
+  return new AirforceVideoProviderError(httpStatus, value, message);
 }
 
 function resolveStringOption(
@@ -32,16 +124,21 @@ function resolveNumberOption(
 
 function extractItemsFromObject(payload: Record<string, unknown>): AirforceMediaItem[] {
   if (payload.error) {
-    const message =
+    throw toProviderError(
       typeof payload.error === "string"
-        ? payload.error
-        : typeof payload.error === "object" &&
-            payload.error !== null &&
-            "message" in payload.error &&
-            typeof payload.error.message === "string"
-          ? payload.error.message
-          : "Airforce video generation failed";
-    throw new Error(message);
+        ? {
+            message: payload.error,
+            detail: typeof payload.detail === "string" ? payload.detail : undefined,
+            details: "details" in payload ? payload.details : undefined,
+            status:
+              typeof payload.status === "number"
+                ? payload.status
+                : typeof payload.statusCode === "number"
+                  ? payload.statusCode
+                  : undefined,
+          }
+        : payload.error,
+    );
   }
 
   if (Array.isArray(payload.data) && payload.data.length > 0) {
@@ -74,73 +171,131 @@ function extractItemsFromObject(payload: Record<string, unknown>): AirforceMedia
 function extractItemsFromEventStream(rawText: string): AirforceMediaItem[] {
   let items: AirforceMediaItem[] = [];
 
-  for (const block of rawText.split(/\n\n+/)) {
-    for (const line of block.split("\n")) {
-      if (!line.startsWith("data: ")) continue;
-      const payload = line.slice(6).trim();
-      if (!payload || payload === "[DONE]" || payload === ": keepalive") continue;
+  for (const block of rawText.split(/\r?\n\r?\n+/)) {
+    const dataLines = block
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trimStart())
+      .filter((line) => line.length > 0);
 
-      // Defensive: skip malformed JSON chunks rather than exploding
-      let parsed: Record<string, unknown>;
-      try {
-        parsed = JSON.parse(payload) as Record<string, unknown>;
-      } catch {
-        // Malformed chunk; log at debug level and continue to next
-        if (process.env.NODE_ENV === "development") {
-          console.warn("[airforce-video] Skipping malformed SSE chunk:", payload.slice(0, 100));
-        }
-        continue;
-      }
+    if (dataLines.length === 0) {
+      continue;
+    }
 
-      const nextItems = extractItemsFromObject(parsed);
-      if (nextItems.length > 0) {
-        items = nextItems;
+    const payload = dataLines.join("\n").trim();
+    if (!payload || payload === "[DONE]") {
+      continue;
+    }
+
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(payload) as Record<string, unknown>;
+    } catch {
+      if (process.env.NODE_ENV === "development") {
+        console.warn("[airforce-video] Skipping malformed SSE chunk:", payload.slice(0, 100));
       }
+      continue;
+    }
+
+    const nextItems = extractItemsFromObject(parsed);
+    if (nextItems.length > 0) {
+      items = nextItems;
     }
   }
 
   return items;
 }
 
-export function isSupportedAirforceVideoModel(modelId: string): boolean {
-  return SUPPORTED_AIRFORCE_VIDEO_MODELS.has(modelId);
+function resolveGrokVideoAspectRatio(value: string | undefined): "3:2" | "2:3" {
+  if (value && GROK_VIDEO_ASPECT_RATIOS.has(value)) {
+    return value as "3:2" | "2:3";
+  }
+
+  return "2:3";
 }
 
-export function buildAirforceVideoRequest(
+function resolveGrokVideoResolution(value: string | undefined): "480p" | "720p" | "1080p" {
+  const normalized = value?.trim().toLowerCase();
+  switch (normalized) {
+    case "480p":
+    case "720p":
+    case "1080p":
+      return normalized;
+    default:
+      return "720p";
+  }
+}
+
+function resolveGrokVideoSize(
+  aspectRatio: "3:2" | "2:3",
+  resolution: "480p" | "720p" | "1080p",
+): string {
+  return GROK_VIDEO_RESOLUTION_TO_SIZE[aspectRatio][resolution];
+}
+
+function getReferenceImageUrls(params: VideoRequestParams): string[] {
+  return Array.from(
+    new Set(
+      [params.imageUrl, ...(params.imageUrls ?? [])].filter(
+        (value): value is string => typeof value === "string" && value.trim().length > 0,
+      ),
+    ),
+  ).slice(0, 2);
+}
+
+async function resolveAirforceImageReferenceUrl(url: string): Promise<string> {
+  try {
+    const response = await fetch(url, {
+      method: "HEAD",
+      redirect: "follow",
+    });
+
+    return response.url || url;
+  } catch {
+    return url;
+  }
+}
+
+async function resolveAirforceImageReferenceUrls(urls: string[]): Promise<string[]> {
+  return Promise.all(urls.map((url) => resolveAirforceImageReferenceUrl(url)));
+}
+
+function buildGrokImagineVideoRequest(
   modelId: string,
   params: VideoRequestParams,
+  referenceImageUrls: string[],
 ): Record<string, unknown> {
-  // Model-specific body construction - no shared image-ish fields (size, n, response_format)
-  switch (modelId) {
-    case "grok-imagine-video": {
-      // Grok Imagine Video uses distinct request shapes for text-to-video vs
-      // image-to-video. When an image is provided, `aspectRatio` is omitted
-      // (the video inherits the image's aspect) and `image_urls` is sent.
-      const body: Record<string, unknown> = {
-        model: modelId,
-        prompt: params.prompt,
-        sse: true,
-        mode: "normal",
-        resolution: resolveStringOption(
-          params.resolution,
-          new Set(["480p", "720p"]),
-          "480p",
-        ),
-      };
+  const aspectRatio = resolveGrokVideoAspectRatio(params.aspectRatio);
+  const resolution = resolveGrokVideoResolution(params.resolution);
+  const body: Record<string, unknown> = {
+    model: modelId,
+    prompt: params.prompt,
+    n: 1,
+    response_format: "url",
+    sse: true,
+    aspectRatio,
+    size: resolveGrokVideoSize(aspectRatio, resolution),
+  };
 
-      if (params.imageUrl) {
-        // Image-to-video: provide reference frame, no aspectRatio
-        body.image_urls = [params.imageUrl];
-      } else {
-        // Text-to-video: aspectRatio required since no reference frame
-        body.aspectRatio = resolveStringOption(
-          params.aspectRatio,
-          new Set(["3:2", "2:3", "1:1"]),
-          "3:2",
-        );
-      }
-      return body;
-    }
+  if (referenceImageUrls.length > 0) {
+    body.image_urls = referenceImageUrls;
+  }
+
+  return body;
+}
+
+export async function buildAirforceVideoRequest(
+  modelId: string,
+  params: VideoRequestParams,
+): Promise<Record<string, unknown>> {
+  const referenceImageUrls = await resolveAirforceImageReferenceUrls(
+    getReferenceImageUrls(params),
+  );
+  const primaryReferenceImageUrl = referenceImageUrls[0] ?? params.imageUrl;
+
+  switch (modelId) {
+    case "grok-imagine-video":
+      return buildGrokImagineVideoRequest(modelId, params, referenceImageUrls);
     case "sora-2": {
       const body: Record<string, unknown> = {
         model: modelId,
@@ -151,14 +306,10 @@ export function buildAirforceVideoRequest(
           new Set(["portrait", "landscape"]),
           "portrait",
         ),
-        duration: resolveNumberOption(
-          params.duration,
-          new Set([10, 15]),
-          10,
-        ),
+        duration: resolveNumberOption(params.duration, new Set([10, 15]), 10),
       };
-      if (params.imageUrl) {
-        body.image_urls = [params.imageUrl];
+      if (primaryReferenceImageUrl) {
+        body.image_urls = [primaryReferenceImageUrl];
       }
       return body;
     }
@@ -173,46 +324,33 @@ export function buildAirforceVideoRequest(
           "16:9",
         ),
       };
-      if (params.imageUrl) {
-        body.start_frame_url = params.imageUrl;
+      if (primaryReferenceImageUrl) {
+        body.start_frame_url = primaryReferenceImageUrl;
       }
       return body;
     }
-    case "wan-2.6": {
-      // Conservative payload for Airforce's Wan 2.6 proxy.
-      // Fields like `aspectRatio`, `sound`, and `wan_image_url` are omitted because
-      // they are not documented in the official Alibaba Wan API and may cause
-      // upstream 500s or be silently ignored. We send only the minimal set that
-      // is reasonably safe based on Airforce's image-style endpoint pattern.
-      const body: Record<string, unknown> = {
+    case "wan-2.6":
+      return {
         model: modelId,
         prompt: params.prompt,
         sse: true,
-        duration: resolveNumberOption(
-          params.duration,
-          new Set([5, 10, 15]),
-          5,
-        ),
-        resolution: resolveStringOption(
-          params.resolution,
-          new Set(["720P", "1080P"]),
-          "720P",
-        ),
+        duration: resolveNumberOption(params.duration, new Set([5, 10, 15]), 5),
+        resolution: resolveStringOption(params.resolution, new Set(["720P", "1080P"]), "720P"),
       };
-      // Image-to-video is not supported for wan-2.6 through Airforce due to
-      // lack of documented field name. Callers should use AIML API for i2v.
-      return body;
-    }
     default:
       throw new Error(`Unsupported Airforce video model: ${modelId}`);
   }
+}
+
+export function isSupportedAirforceVideoModel(modelId: string): boolean {
+  return SUPPORTED_AIRFORCE_VIDEO_MODELS.has(modelId);
 }
 
 export function extractAirforceVideoItems(rawText: string): AirforceMediaItem[] {
   const trimmed = rawText.trim();
   if (!trimmed) return [];
 
-  if (trimmed.startsWith("data:") || trimmed.includes("\ndata:")) {
+  if (/(^|[\r\n])data:/m.test(trimmed)) {
     return extractItemsFromEventStream(trimmed);
   }
 

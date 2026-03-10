@@ -154,11 +154,44 @@ describe("buildHistoryPanelViewModel", () => {
   });
 
   it("returns only failure items for the failures filter", () => {
-    const model = buildModel("failures");
+    const model = buildHistoryPanelViewModel({
+      filter: "failures",
+      savedImages: [],
+      selectedImageId: null,
+      videoJobs: [
+        createVideoJob({
+          id: "video-failure-older",
+          prompt: "Older failed video prompt",
+          status: "error",
+          createdAt: 1_000,
+        }),
+        createVideoJob({
+          id: "video-failure-newest",
+          prompt: "Newest failed video prompt",
+          status: "cancelled",
+          createdAt: 3_000,
+        }),
+      ],
+      selectedVideoJobId: null,
+      imageJobs: [
+        createImageJob({
+          id: "image-failure-middle",
+          prompt: "Middle failed image prompt",
+          status: "error",
+          createdAt: 2_000,
+        }),
+      ],
+      selectedImageJobId: null,
+    });
 
     expect(model.sections.map((section) => section.id)).toEqual(["failures"]);
     expect(model.sections[0]?.label).toBe("Failures");
-    expect(model.sections[0]?.items).toHaveLength(2);
+    expect(model.sections[0]?.items).toHaveLength(3);
+    expect(model.sections[0]?.items.map((item) => item.key)).toEqual([
+      "video-failure-newest",
+      "image-failure-middle",
+      "video-failure-older",
+    ]);
   });
 
   it("provides filter-specific empty state copy when nothing matches", () => {

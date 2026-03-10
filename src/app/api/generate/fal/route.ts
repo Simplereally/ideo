@@ -4,6 +4,10 @@ import { isAllowedModel } from "@/lib/server/model-allowlist";
 import { generationLimiter, getClientIp, rateLimitResponse } from "@/lib/server/rate-limit";
 import { resolveApiKey } from "@/lib/server/resolve-keys";
 import { extractApiKey } from "@/lib/server/extract-credentials";
+import {
+  logGenerationRequest,
+  logGenerationResponse,
+} from "@/lib/server/generation-debug";
 import type { ImageGenerationRequest, ImageGenerationResponse } from "@/lib/types/generation";
 import { validateImageGenerationResponse } from "@/lib/types/generation";
 
@@ -120,7 +124,13 @@ export async function POST(request: Request) {
       falInput.enable_safety_checker = body.enableSafetyChecker;
     }
 
+    logGenerationRequest("POST api/generate/fal", {
+      model: apiModelId,
+      input: falInput,
+    });
+
     const result = await client.subscribe(apiModelId, { input: falInput });
+    logGenerationResponse("POST api/generate/fal", result);
     const data = result.data as { images?: { url?: string }[] } | undefined;
 
     // Fal returns URLs directly — no upload needed.

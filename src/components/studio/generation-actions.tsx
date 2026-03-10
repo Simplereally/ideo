@@ -25,6 +25,7 @@ import { pollVideoGeneration, type PollHandle } from "@/lib/services/video-polli
 import { useVideoJobsStore } from "@/store/video-jobs";
 import { useImageJobsStore, type ImageJob, type ImageRetryPayload } from "@/store/image-jobs";
 import { useSettingsStore } from "@/store/settings";
+import { normalizeReferenceImageUrl } from "@/lib/services/reference-image-upload";
 import { buildProviderCredentials, injectCredentials } from "@/lib/services/provider-credentials";
 import { toast } from "sonner";
 import type {
@@ -35,6 +36,94 @@ import type {
 import { validateImageGenerationResponse } from "@/lib/types/generation";
 
 const MAX_IMAGE_JOB_ATTEMPTS = 2;
+
+function buildReferenceImageUrls(state: StudioState): {
+  imageUrl?: string;
+  imageUrls: string[];
+} {
+  const imageUrls = Array.from(
+    new Set(
+      [
+        state.videoImageUrl || undefined,
+        state.useSelectedImageAsVideoReference
+          ? state.selectedImage?.imageUrl
+          : undefined,
+      ].filter((url): url is string => !!url),
+    ),
+  ).slice(0, 2);
+
+  return {
+    imageUrl: state.videoImageUrl || undefined,
+    imageUrls,
+  };
+}
+
+function isPublicProviderReferenceUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url, window.location.origin);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return false;
+    }
+
+    const hostname = parsed.hostname.toLowerCase();
+    return !new Set(["localhost", "127.0.0.1", "0.0.0.0", "::1"]).has(hostname);
+  } catch {
+    return false;
+  }
+}
+
+async function normalizeVideoReferenceParams(
+  model: string,
+  provider: Provider,
+  params: VideoRequestParams,
+): Promise<VideoRequestParams> {
+  const modelConfig = getModelConfig(model);
+  if (provider !== "airforce" || modelConfig?.value !== "grok-imagine-video") {
+    return params;
+  }
+
+  const sourceImageUrls = Array.from(
+    new Set(
+      [params.imageUrl, ...(params.imageUrls ?? [])].filter(
+        (url): url is string => typeof url === "string" && url.trim().length > 0,
+      ),
+    ),
+  ).slice(0, 2);
+
+  if (sourceImageUrls.length === 0) {
+    return params;
+  }
+
+  const normalizedEntries = await Promise.all(
+    sourceImageUrls.map(async (url) => {
+      try {
+        const normalizedUrl = await normalizeReferenceImageUrl(url);
+        return [url, isPublicProviderReferenceUrl(normalizedUrl) ? normalizedUrl : url] as const;
+      } catch (error) {
+        console.warn(
+          "[generation-actions] reference image normalization failed; using original URL",
+          { model, provider, url, error },
+        );
+        return [url, url] as const;
+      }
+    }),
+  );
+
+  const normalizedBySourceUrl = new Map(normalizedEntries);
+  const normalizedImageUrls = sourceImageUrls.map(
+    (url) => normalizedBySourceUrl.get(url) ?? url,
+  );
+  const normalizedPrimaryUrl =
+    params.imageUrl && params.imageUrl.trim().length > 0
+      ? normalizedBySourceUrl.get(params.imageUrl) ?? params.imageUrl
+      : undefined;
+
+  return {
+    ...params,
+    imageUrl: normalizedPrimaryUrl,
+    imageUrls: Array.from(new Set(normalizedImageUrls)),
+  };
+}
 
 interface GenerationActionsContextValue {
   generateFromCurrentState: () => Promise<void>;
@@ -71,8 +160,14 @@ function buildVideoParamsFromState(state: StudioState): VideoRequestParams | nul
   if (caps.generateAudio) {
     params.generateAudio = state.generateAudio;
   }
-  if (caps.imageUrl && state.videoImageUrl) {
-    params.imageUrl = state.videoImageUrl;
+  if (caps.imageUrl) {
+    const referenceImages = buildReferenceImageUrls(state);
+    if (referenceImages.imageUrl) {
+      params.imageUrl = referenceImages.imageUrl;
+    }
+    if (referenceImages.imageUrls.length > 0) {
+      params.imageUrls = referenceImages.imageUrls;
+    }
   }
   if (caps.audioUrl && state.videoAudioUrl) {
     params.audioUrl = state.videoAudioUrl;
@@ -185,10 +280,10 @@ export function GenerationActionsProvider({
   const [isSubmittingVideo, setIsSubmittingVideo] = useState(false);
 
   const addVideoJob = useVideoJobsStore((s) => s.addJob);
+  const replaceVideoJob = useVideoJobsStore((s) => s.replaceJob);
   const setVideoJobStatus = useVideoJobsStore((s) => s.setJobStatus);
   const markVideoJobCompleted = useVideoJobsStore((s) => s.markJobCompleted);
   const markVideoJobError = useVideoJobsStore((s) => s.markJobError);
-  const removeVideoJob = useVideoJobsStore((s) => s.removeJob);
   const selectVideoJob = useVideoJobsStore((s) => s.selectJob);
 
   const addImageJob = useImageJobsStore((s) => s.addJob);
@@ -375,14 +470,10 @@ export function GenerationActionsProvider({
       if (!prompt) return;
       if (isSubmittingVideoRef.current) return;
 
-      isSubmittingVideoRef.current = true;
-      setIsSubmittingVideo(true);
-
-      // Create a temporary queued job immediately so the UI can show pending state
-      const tempJobId = crypto.randomUUID();
       const timestamp = Date.now();
-      addVideoJob({
-        id: tempJobId,
+      const pendingJobId = crypto.randomUUID();
+      const pendingJob: VideoJob = {
+        id: pendingJobId,
         model,
         provider,
         prompt,
@@ -390,19 +481,27 @@ export function GenerationActionsProvider({
         status: "queued",
         createdAt: timestamp,
         updatedAt: timestamp,
-      });
+        requestPending: true,
+      };
 
       if (replaceJobId) {
-        removeVideoJob(replaceJobId);
+        replaceVideoJob(replaceJobId, pendingJob);
+      } else {
+        addVideoJob(pendingJob);
       }
       if (selectNewJob) {
-        selectVideoJob(tempJobId);
-      }
-      if (clearPrompt) {
-        setPrompt("");
+        selectVideoJob(pendingJobId);
       }
 
+      isSubmittingVideoRef.current = true;
+      setIsSubmittingVideo(true);
+
       try {
+        const requestParams = await normalizeVideoReferenceParams(
+          model,
+          provider,
+          { ...params, prompt },
+        );
         const credentials = buildProviderCredentials(
           provider,
           useSettingsStore.getState(),
@@ -411,25 +510,28 @@ export function GenerationActionsProvider({
         const createResult = await createVideoGeneration({
           provider,
           model: modelConfig.value,
-          params: { ...params, prompt },
+          params: requestParams,
           credentials,
         });
 
-        // Swap the temp job with the real server-returned job
-        removeVideoJob(tempJobId);
-        addVideoJob({
+        replaceVideoJob(pendingJobId, {
           id: createResult.id,
           model,
           provider,
           prompt,
-          params: { ...params, prompt },
+          params: requestParams,
           status: createResult.status,
           createdAt: timestamp,
-          updatedAt: Date.now(),
+          updatedAt: timestamp,
+          requestPending: false,
         });
 
         if (selectNewJob) {
           selectVideoJob(createResult.id);
+        }
+
+        if (clearPrompt) {
+          setPrompt("");
         }
 
         if (createResult.status === "completed" && createResult.videoUrl) {
@@ -446,19 +548,19 @@ export function GenerationActionsProvider({
 
         startPollingJob(createResult.id, provider);
       } catch (error: unknown) {
-        // Mark the temporary job as failed (parity with image failure handling)
         const message =
           error instanceof Error
             ? error.message
             : "Failed to start video generation";
-        markVideoJobError(tempJobId, message);
+        markVideoJobError(pendingJobId, message);
         toast.error(message);
 
-        // Surface structured diagnostics for developer debugging
         if (error instanceof AirforceVideoError) {
           console.error("[AirforceVideoError]", {
             message: error.message,
+            httpStatus: error.httpStatus,
             diagnostics: error.diagnostics,
+            raw: error.raw,
           });
         }
       } finally {
@@ -469,7 +571,8 @@ export function GenerationActionsProvider({
     [
       addVideoJob,
       markVideoJobCompleted,
-      removeVideoJob,
+      markVideoJobError,
+      replaceVideoJob,
       selectVideoJob,
       setPrompt,
       startPollingJob,
@@ -547,7 +650,11 @@ export function GenerationActionsProvider({
   useEffect(() => {
     const activeJobs = useVideoJobsStore
       .getState()
-      .jobs.filter((job) => job.status === "queued" || job.status === "generating");
+      .jobs.filter(
+        (job) =>
+          !job.requestPending &&
+          (job.status === "queued" || job.status === "generating"),
+      );
 
     for (const job of activeJobs) {
       startPollingJob(job.id, job.provider);

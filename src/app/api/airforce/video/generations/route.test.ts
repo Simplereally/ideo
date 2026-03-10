@@ -153,7 +153,7 @@ describe("POST /api/airforce/video/generations", () => {
   });
 
   describe("model-specific request shaping", () => {
-    it("sends grok-imagine-video requests without image-ish fields", async () => {
+    it("sends grok-imagine-video requests with the Airforce size contract", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         text: async () =>
@@ -173,18 +173,13 @@ describe("POST /api/airforce/video/generations", () => {
       const [, options] = mockFetch.mock.calls[0];
       const sentBody = JSON.parse(options.body);
 
-      // Should have video-specific fields
       expect(sentBody.model).toBe("grok-imagine-video");
       expect(sentBody.prompt).toBe("a beautiful sunset");
-      expect(sentBody.mode).toBe("normal");
-      expect(sentBody.resolution).toBe("720p");
       expect(sentBody.aspectRatio).toBe("3:2");
+      expect(sentBody.size).toBe("1280x720");
       expect(sentBody.sse).toBe(true);
-
-      // Should NOT have image-ish fields that cause contract mismatches
-      expect(sentBody).not.toHaveProperty("size");
-      expect(sentBody).not.toHaveProperty("n");
-      expect(sentBody).not.toHaveProperty("response_format");
+      expect(sentBody.n).toBe(1);
+      expect(sentBody.response_format).toBe("url");
     });
 
     it("sends wan-2.6 requests with minimal conservative payload", async () => {
@@ -225,7 +220,11 @@ describe("POST /api/airforce/video/generations", () => {
       expect(sentBody).not.toHaveProperty("response_format");
     });
 
-    it("sends grok-imagine-video image-to-video with image_urls and without aspectRatio", async () => {
+    it("sends grok-imagine-video image-to-video with image_urls", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        url: "https://cdn.example.com/cat.jpg",
+      });
       mockFetch.mockResolvedValueOnce({
         ok: true,
         text: async () =>
@@ -241,22 +240,31 @@ describe("POST /api/airforce/video/generations", () => {
         }),
       );
 
-      expect(mockFetch).toHaveBeenCalledTimes(1);
-      const [, options] = mockFetch.mock.calls[0];
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      const [, options] = mockFetch.mock.calls[1];
       const sentBody = JSON.parse(options.body);
 
-      // Should have image_urls for image-to-video
-      expect(sentBody.image_urls).toEqual(["https://example.com/cat.jpg"]);
-      // Should NOT have aspectRatio when using image input
-      expect(sentBody).not.toHaveProperty("aspectRatio");
-      // Should have other expected fields
+      expect(mockFetch).toHaveBeenNthCalledWith(
+        1,
+        "https://example.com/cat.jpg",
+        expect.objectContaining({
+          method: "HEAD",
+          redirect: "follow",
+        }),
+      );
       expect(sentBody.model).toBe("grok-imagine-video");
       expect(sentBody.prompt).toBe("make the cat dance");
-      expect(sentBody.mode).toBe("normal");
+      expect(sentBody.aspectRatio).toBe("2:3");
+      expect(sentBody.size).toBe("720x1280");
       expect(sentBody.sse).toBe(true);
+      expect(sentBody.image_urls).toEqual(["https://cdn.example.com/cat.jpg"]);
     });
 
     it("accepts image_urls arrays from the client for grok-imagine-video", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        url: "https://cdn.example.com/cat.jpg",
+      });
       mockFetch.mockResolvedValueOnce({
         ok: true,
         text: async () =>
@@ -271,12 +279,13 @@ describe("POST /api/airforce/video/generations", () => {
         }),
       );
 
-      expect(mockFetch).toHaveBeenCalledTimes(1);
-      const [, options] = mockFetch.mock.calls[0];
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      const [, options] = mockFetch.mock.calls[1];
       const sentBody = JSON.parse(options.body);
 
-      expect(sentBody.image_urls).toEqual(["https://example.com/cat.jpg"]);
-      expect(sentBody).not.toHaveProperty("aspectRatio");
+      expect(sentBody.image_urls).toEqual(["https://cdn.example.com/cat.jpg"]);
+      expect(sentBody.aspectRatio).toBe("2:3");
+      expect(sentBody.size).toBe("720x1280");
     });
   });
 
