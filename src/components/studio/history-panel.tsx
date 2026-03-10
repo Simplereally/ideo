@@ -240,6 +240,7 @@ function VideoJobItem({
   const cfg = STATUS_CONFIG[job.status];
   const StatusIcon = cfg.icon;
   const isActive = job.status === "queued" || job.status === "generating";
+  const canRetry = job.status === "error";
 
   return (
     <div
@@ -249,12 +250,22 @@ function VideoJobItem({
         isSelected && "selected",
       )}
     >
-      <button
-        type="button"
-        onClick={onSelect}
-        aria-pressed={isSelected}
-        className="flex min-w-0 flex-1 items-center gap-3 text-left"
-      >
+      {canRetry ? (
+        <button
+          type="button"
+          onClick={onRetry}
+          aria-label="Retry failed video generation"
+          title="Retry failed video generation"
+          className="relative flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-muted/50 text-primary transition-all hover:scale-[1.03] hover:border-primary/30 hover:bg-primary/5"
+        >
+          <div className="flex flex-col items-center justify-center gap-0.5">
+            <RotateCcw className="size-3.5" strokeWidth={1.75} />
+            <span className="text-[8px] font-semibold uppercase tracking-[0.08em]">
+              Retry
+            </span>
+          </div>
+        </button>
+      ) : (
         <div
           className={cn(
             "relative flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border",
@@ -270,7 +281,15 @@ function VideoJobItem({
             />
           )}
         </div>
+      )}
 
+      <button
+        type="button"
+        onClick={onSelect}
+        aria-pressed={isSelected}
+        tabIndex={canRetry ? -1 : 0}
+        className="flex min-w-0 flex-1 items-center gap-3 text-left"
+      >
         <div className="flex min-w-0 flex-1 flex-col justify-center gap-1">
           <p className="line-clamp-2 text-xs font-medium leading-relaxed text-foreground">
             {job.prompt}
@@ -303,17 +322,6 @@ function VideoJobItem({
           <Copy className="size-3" strokeWidth={2.5} />
         </ActionIconButton>
 
-        {job.status === "error" && (
-          <ActionIconButton
-            label="Retry failed video generation"
-            onClick={onRetry}
-            isVisible={isVisible}
-            className="text-muted-foreground hover:text-primary hover:scale-105"
-          >
-            <RotateCcw className="size-3" strokeWidth={2.5} />
-          </ActionIconButton>
-        )}
-
         {isActive && (
           <ActionIconButton
             label="Cancel video generation"
@@ -342,11 +350,15 @@ function VideoJobItem({
 
 function ImageJobItem({
   job,
+  isSelected,
+  onSelect,
   onCancel,
   onRemove,
   onRetry,
 }: {
   job: ImageJob;
+  isSelected: boolean;
+  onSelect: () => void;
   onCancel: () => void;
   onRemove: () => void;
   onRetry: () => void;
@@ -360,7 +372,10 @@ function ImageJobItem({
   return (
     <div
       {...containerProps}
-      className="ios-list-item group relative flex w-full gap-3 p-3 text-left"
+      className={cn(
+        "ios-list-item group relative flex w-full gap-3 p-3",
+        isSelected && "selected",
+      )}
     >
       {canRetry ? (
         <button
@@ -388,12 +403,10 @@ function ImageJobItem({
 
       <button
         type="button"
+        onClick={onSelect}
+        aria-pressed={isSelected}
         tabIndex={canRetry ? -1 : 0}
-        onClick={() => {
-          void copyPromptToClipboard(job.prompt);
-        }}
-        aria-label={`Image job: ${job.prompt}`}
-        className="flex min-w-0 flex-1 cursor-default items-start gap-3 text-left focus:outline-none"
+        className="flex min-w-0 flex-1 items-center gap-3 text-left"
       >
         <div className="flex min-w-0 flex-1 flex-col justify-center gap-1">
           <p className="line-clamp-2 text-xs font-medium leading-relaxed text-foreground">
@@ -508,6 +521,8 @@ export function HistoryPanel({ overlay }: { overlay?: boolean } = {}) {
   );
 
   const imageJobs = useImageJobsStore((store) => store.jobs);
+  const selectedImageJobId = useImageJobsStore((store) => store.selectedJobId);
+  const selectImageJob = useImageJobsStore((store) => store.selectJob);
   const cancelImageJob = useImageJobsStore((store) => store.cancelJobLocal);
   const removeImageJob = useImageJobsStore((store) => store.removeJob);
   const clearTerminalImageJobs = useImageJobsStore(
@@ -521,6 +536,7 @@ export function HistoryPanel({ overlay }: { overlay?: boolean } = {}) {
     videoJobs,
     selectedVideoJobId: selectedJobId,
     imageJobs,
+    selectedImageJobId,
   });
 
   function closeOverlayAfterSelection() {
@@ -531,13 +547,22 @@ export function HistoryPanel({ overlay }: { overlay?: boolean } = {}) {
 
   function handleSelectImage(image: GeneratedImage) {
     selectVideoJob(null);
+    selectImageJob(null);
     selectImage(image);
     closeOverlayAfterSelection();
   }
 
   function handleSelectVideoJob(jobId: string) {
     selectImage(null);
+    selectImageJob(null);
     selectVideoJob(jobId);
+    closeOverlayAfterSelection();
+  }
+
+  function handleSelectImageJob(jobId: string) {
+    selectImage(null);
+    selectVideoJob(null);
+    selectImageJob(jobId);
     closeOverlayAfterSelection();
   }
 
@@ -578,6 +603,8 @@ export function HistoryPanel({ overlay }: { overlay?: boolean } = {}) {
           <ImageJobItem
             key={item.key}
             job={item.job}
+            isSelected={item.isSelected}
+            onSelect={() => handleSelectImageJob(item.job.id)}
             onCancel={() => cancelImageJob(item.job.id)}
             onRemove={() => removeImageJob(item.job.id)}
             onRetry={() => void retryImageJob(item.job.id)}

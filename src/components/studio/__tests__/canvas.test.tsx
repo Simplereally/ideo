@@ -1,10 +1,13 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { GeneratedImage } from "@/lib/types";
+import type { GeneratedImage, VideoJob } from "@/lib/types";
 
-const openImageViewer = vi.fn();
-const selectJob = vi.fn();
+const mocks = vi.hoisted(() => ({
+  openImageViewer: vi.fn(),
+  selectJob: vi.fn(),
+  retryVideoJob: vi.fn(),
+}));
 
 const selectedImage: GeneratedImage = {
   id: "img-1",
@@ -18,13 +21,13 @@ const selectedImage: GeneratedImage = {
 
 const studioState = {
   status: "idle" as const,
-  selectedImage,
+  selectedImage: selectedImage as GeneratedImage | null,
 };
 
 const videoStoreState = {
   selectedJobId: null as string | null,
-  jobs: [] as Array<Record<string, unknown>>,
-  selectJob,
+  jobs: [] as VideoJob[],
+  selectJob: mocks.selectJob,
 };
 
 vi.mock("framer-motion", () => ({
@@ -70,7 +73,7 @@ vi.mock("@/components/ui/tooltip", () => ({
 vi.mock("@/lib/store", () => ({
   useStudio: () => ({
     state: studioState,
-    openImageViewer,
+    openImageViewer: mocks.openImageViewer,
   }),
 }));
 
@@ -79,12 +82,21 @@ vi.mock("@/store/video-jobs", () => ({
     selector(videoStoreState),
 }));
 
+vi.mock("../generation-actions", () => ({
+  useGenerationActions: () => ({
+    retryVideoJob: mocks.retryVideoJob,
+    generateFromCurrentState: vi.fn(),
+    retryImageJob: vi.fn(),
+    isSubmittingVideo: false,
+  }),
+}));
+
 import { StudioCanvas } from "../canvas";
 
 describe("StudioCanvas image preview trigger", () => {
   beforeEach(() => {
-    openImageViewer.mockReset();
-    selectJob.mockReset();
+    mocks.openImageViewer.mockReset();
+    mocks.selectJob.mockReset();
   });
 
   it("opens only when clicking the image, not whitespace within the canvas trigger", async () => {
@@ -98,13 +110,101 @@ describe("StudioCanvas image preview trigger", () => {
     expect(image).toHaveClass("cursor-zoom-in");
 
     await user.click(trigger);
-    expect(openImageViewer).not.toHaveBeenCalled();
+    expect(mocks.openImageViewer).not.toHaveBeenCalled();
 
     fireEvent.click(image);
-    expect(openImageViewer).toHaveBeenCalledWith(selectedImage);
+    expect(mocks.openImageViewer).toHaveBeenCalledWith(selectedImage);
 
     trigger.focus();
     await user.keyboard("{Enter}");
-    expect(openImageViewer).toHaveBeenCalledTimes(2);
+    expect(mocks.openImageViewer).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("StudioCanvas video error state", () => {
+  const failedVideoJob: VideoJob = {
+    id: "video-error-1",
+    model: "aiml:alibaba/wan2.1-t2v-plus",
+    provider: "aiml",
+    prompt: "A failed video prompt",
+    params: { prompt: "A failed video prompt" },
+    status: "error",
+    error: "Something went wrong",
+    createdAt: Date.now() - 10_000,
+    updatedAt: Date.now() - 10_000,
+  };
+
+  beforeEach(() => {
+    mocks.selectJob.mockReset();
+    mocks.retryVideoJob.mockReset();
+    studioState.selectedImage = null;
+    videoStoreState.selectedJobId = "video-error-1";
+    videoStoreState.jobs = [failedVideoJob];
+  });
+
+  it("shows retry and dismiss buttons for failed video job", () => {
+    render(<StudioCanvas />);
+
+    expect(screen.getByText("Video generation failed")).toBeInTheDocument();
+    expect(screen.getByText("Something went wrong")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /retry/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /dismiss/i })).toBeInTheDocument();
+  });
+
+  it("calls retryVideoJob when retry button is clicked", async () => {
+    const user = userEvent.setup();
+
+    render(<StudioCanvas />);
+
+    await user.click(screen.getByRole("button", { name: /retry/i }));
+
+    expect(mocks.retryVideoJob).toHaveBeenCalledWith("video-error-1");
+  });
+
+  it("deselects video job when dismiss button is clicked", async () => {
+    const user = userEvent.setup();
+
+    render(<StudioCanvas />);
+
+    await user.click(screen.getByRole("button", { name: /dismiss/i }));
+
+    expect(mocks.selectJob).toHaveBeenCalledWith(null);
+  });
+
+  it("shows error message when video job has no error text", () => {
+    videoStoreState.jobs = [
+      {
+        ...failedVideoJob,
+        error: undefined,
+      },
+    ];
+
+    render(<StudioCanvas />);
+
+    expect(screen.getByText("Video generation failed")).toBeInTheDocument();
+    // Should not render an empty error message
+    expect(screen.queryByText("Something went wrong")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /retry/i })).toBeInTheDocument();
+  });
+
+  it("retry button triggers generation with correct job id", async () => {
+    const user = userEvent.setup();
+    const jobIdToRetry = "video-error-1";
+
+    render(<StudioCanvas />);
+
+    await user.click(screen.getByRole("button", { name: /retry/i }));
+
+    expect(mocks.retryVideoJob).toHaveBeenCalledTimes(1);
+    expect(mocks.retryVideoJob).toHaveBeenCalledWith(jobIdToRetry);
+  });
+
+  it("displays retry button with RotateCcw icon for visual consistency", () => {
+    render(<StudioCanvas />);
+
+    const retryButton = screen.getByRole("button", { name: /retry/i });
+    expect(retryButton).toBeInTheDocument();
+    // The button should contain "Retry" text
+    expect(retryButton).toHaveTextContent("Retry");
   });
 });

@@ -645,9 +645,8 @@ export const MODELS: ModelConfig[] = [
     capabilities: {
       durationOptions: [5, 10, 15],
       resolutionOptions: ["720P", "1080P"],
-      videoAspectRatios: ["16:9", "9:16"],
-      generateAudio: true,
-      imageUrl: true,
+      // videoAspectRatios and generateAudio omitted - undocumented fields
+      // imageUrl omitted - no documented i2v field for Airforce wan-2.6
     },
   },
 

@@ -4,6 +4,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Clock, X } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useVideoJobsStore } from "@/store/video-jobs";
+import { useImageJobsStore } from "@/store/image-jobs";
 import { useStudio } from "@/lib/store";
 import { MODELS, PROVIDER_SHORT_LABELS } from "@/lib/types";
 import type { Provider, VideoJob } from "@/lib/types";
@@ -205,6 +206,7 @@ export function PendingVideoJobsStrip() {
   );
   const cancelJob = useVideoJobsStore((s) => s.cancelJobLocal);
   const selectJob = useVideoJobsStore((s) => s.selectJob);
+  const selectImageJob = useImageJobsStore((s) => s.selectJob);
   const { selectImage } = useStudio();
 
   useEffect(() => {
@@ -229,9 +231,10 @@ export function PendingVideoJobsStrip() {
   const handleSelect = useCallback(
     (id: string) => {
       selectImage(null);
+      selectImageJob(null);
       selectJob(id);
     },
-    [selectImage, selectJob],
+    [selectImage, selectImageJob, selectJob],
   );
 
   const jobCount = activeJobs.length;

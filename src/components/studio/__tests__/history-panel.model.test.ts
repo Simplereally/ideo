@@ -108,6 +108,7 @@ function buildModel(filter: HistoryFilter) {
         status: "completed",
       }),
     ],
+    selectedImageJobId: null,
   });
 }
 
@@ -174,6 +175,7 @@ describe("buildHistoryPanelViewModel", () => {
       ],
       selectedVideoJobId: null,
       imageJobs: [],
+      selectedImageJobId: null,
     });
 
     expect(model.hasAnyItems).toBe(true);
@@ -181,6 +183,328 @@ describe("buildHistoryPanelViewModel", () => {
     expect(model.emptyState).toEqual({
       title: "No failures",
       description: "Failed or cancelled jobs will show up here.",
+    });
+  });
+
+  describe("video generation history visibility", () => {
+    it("includes completed video jobs in the complete filter", () => {
+      const model = buildHistoryPanelViewModel({
+        filter: "complete",
+        savedImages: [],
+        selectedImageId: null,
+        videoJobs: [
+          createVideoJob({
+            id: "video-completed-1",
+            prompt: "First completed video",
+            status: "completed",
+            resultUrl: "https://example.com/video1.mp4",
+          }),
+          createVideoJob({
+            id: "video-completed-2",
+            prompt: "Second completed video",
+            status: "completed",
+            resultUrl: "https://example.com/video2.mp4",
+          }),
+          createVideoJob({
+            id: "video-generating",
+            prompt: "Still generating",
+            status: "generating",
+          }),
+        ],
+        selectedVideoJobId: null,
+        imageJobs: [],
+        selectedImageJobId: null,
+      });
+
+      expect(model.hasVisibleItems).toBe(true);
+      expect(model.sections).toHaveLength(1);
+      expect(model.sections[0]?.id).toBe("completed-videos");
+      expect(model.sections[0]?.items).toHaveLength(2);
+      expect(model.sections[0]?.items.map((item) =>
+        item.kind === "video-job" ? item.job.id : null,
+      )).toEqual(["video-completed-1", "video-completed-2"]);
+    });
+
+    it("includes failed video jobs in the failures filter", () => {
+      const model = buildHistoryPanelViewModel({
+        filter: "failures",
+        savedImages: [],
+        selectedImageId: null,
+        videoJobs: [
+          createVideoJob({
+            id: "video-error",
+            prompt: "Errored video",
+            status: "error",
+            error: "Network timeout",
+          }),
+          createVideoJob({
+            id: "video-cancelled",
+            prompt: "Cancelled video",
+            status: "cancelled",
+          }),
+          createVideoJob({
+            id: "video-completed",
+            prompt: "Completed video",
+            status: "completed",
+          }),
+        ],
+        selectedVideoJobId: null,
+        imageJobs: [],
+        selectedImageJobId: null,
+      });
+
+      expect(model.hasVisibleItems).toBe(true);
+      expect(model.sections).toHaveLength(1);
+      expect(model.sections[0]?.id).toBe("failures");
+      expect(model.sections[0]?.items).toHaveLength(2);
+      expect(model.sections[0]?.items.map((item) =>
+        item.kind === "video-job" ? item.job.id : null,
+      )).toEqual(["video-error", "video-cancelled"]);
+    });
+
+    it("surfaces completed video jobs alongside saved images in complete filter", () => {
+      const model = buildHistoryPanelViewModel({
+        filter: "complete",
+        savedImages: [
+          createHistoryImage({ id: "saved-1", prompt: "Saved image" }),
+        ],
+        selectedImageId: null,
+        videoJobs: [
+          createVideoJob({
+            id: "video-done",
+            prompt: "Completed video",
+            status: "completed",
+            resultUrl: "https://example.com/video.mp4",
+          }),
+        ],
+        selectedVideoJobId: null,
+        imageJobs: [],
+        selectedImageJobId: null,
+      });
+
+      expect(model.sections.map((s) => s.id)).toEqual([
+        "completed-videos",
+        "images",
+      ]);
+      expect(model.sections[0]?.items).toHaveLength(1);
+      expect(model.sections[1]?.items).toHaveLength(1);
+    });
+
+    it("shows only video jobs when no saved images exist", () => {
+      const model = buildHistoryPanelViewModel({
+        filter: "all",
+        savedImages: [],
+        selectedImageId: null,
+        videoJobs: [
+          createVideoJob({
+            id: "video-generating",
+            prompt: "Generating",
+            status: "generating",
+          }),
+          createVideoJob({
+            id: "video-completed",
+            prompt: "Done",
+            status: "completed",
+          }),
+        ],
+        selectedVideoJobId: "video-generating",
+        imageJobs: [],
+        selectedImageJobId: null,
+      });
+
+      expect(model.hasAnyItems).toBe(true);
+      expect(model.hasVisibleItems).toBe(true);
+      expect(model.sections.map((s) => s.id)).toEqual([
+        "active-videos",
+        "completed-videos",
+      ]);
+    });
+
+    it("tracks selection state for completed video jobs", () => {
+      const model = buildHistoryPanelViewModel({
+        filter: "complete",
+        savedImages: [],
+        selectedImageId: null,
+        videoJobs: [
+          createVideoJob({
+            id: "video-a",
+            prompt: "Video A",
+            status: "completed",
+          }),
+          createVideoJob({
+            id: "video-b",
+            prompt: "Video B",
+            status: "completed",
+          }),
+        ],
+        selectedVideoJobId: "video-b",
+        imageJobs: [],
+        selectedImageJobId: null,
+      });
+
+      const items = model.sections[0]?.items ?? [];
+      expect(items[0]).toMatchObject({
+        kind: "video-job",
+        isSelected: false,
+        job: expect.objectContaining({ id: "video-a" }),
+      });
+      expect(items[1]).toMatchObject({
+        kind: "video-job",
+        isSelected: true,
+        job: expect.objectContaining({ id: "video-b" }),
+      });
+    });
+
+    it("tracks selection state for failed video jobs", () => {
+      const model = buildHistoryPanelViewModel({
+        filter: "failures",
+        savedImages: [],
+        selectedImageId: null,
+        videoJobs: [
+          createVideoJob({
+            id: "video-err-1",
+            prompt: "First error",
+            status: "error",
+          }),
+          createVideoJob({
+            id: "video-err-2",
+            prompt: "Second error",
+            status: "error",
+          }),
+        ],
+        selectedVideoJobId: "video-err-1",
+        imageJobs: [],
+        selectedImageJobId: null,
+      });
+
+      const items = model.sections[0]?.items ?? [];
+      expect(items[0]).toMatchObject({
+        kind: "video-job",
+        isSelected: true,
+        job: expect.objectContaining({ id: "video-err-1" }),
+      });
+      expect(items[1]).toMatchObject({
+        kind: "video-job",
+        isSelected: false,
+        job: expect.objectContaining({ id: "video-err-2" }),
+      });
+    });
+
+    it("groups failed videos with failed images in the failures section", () => {
+      const model = buildHistoryPanelViewModel({
+        filter: "failures",
+        savedImages: [],
+        selectedImageId: null,
+        videoJobs: [
+          createVideoJob({
+            id: "video-err",
+            prompt: "Failed video",
+            status: "error",
+          }),
+        ],
+        selectedVideoJobId: null,
+        imageJobs: [
+          createImageJob({
+            id: "image-err",
+            prompt: "Failed image",
+            status: "error",
+          }),
+        ],
+        selectedImageJobId: null,
+      });
+
+      expect(model.sections).toHaveLength(1);
+      expect(model.sections[0]?.id).toBe("failures");
+      expect(model.sections[0]?.items).toHaveLength(2);
+      expect(model.sections[0]?.items.map((item) => item.kind)).toEqual([
+        "image-job",
+        "video-job",
+      ]);
+    });
+
+    it("returns empty state for complete filter when only active/failed jobs exist", () => {
+      const model = buildHistoryPanelViewModel({
+        filter: "complete",
+        savedImages: [],
+        selectedImageId: null,
+        videoJobs: [
+          createVideoJob({
+            id: "video-generating",
+            prompt: "Generating",
+            status: "generating",
+          }),
+          createVideoJob({
+            id: "video-error",
+            prompt: "Errored",
+            status: "error",
+          }),
+        ],
+        selectedVideoJobId: null,
+        imageJobs: [],
+        selectedImageJobId: null,
+      });
+
+      expect(model.hasAnyItems).toBe(true);
+      expect(model.hasVisibleItems).toBe(false);
+      expect(model.emptyState).toEqual({
+        title: "No completed items",
+        description: "Completed images and videos will show up here.",
+      });
+    });
+
+    it("preserves video job with resultUrl in completed section", () => {
+      const resultUrl = "https://cdn.example.com/generated-video.mp4";
+      const model = buildHistoryPanelViewModel({
+        filter: "all",
+        savedImages: [],
+        selectedImageId: null,
+        videoJobs: [
+          createVideoJob({
+            id: "video-with-url",
+            prompt: "Video with result",
+            status: "completed",
+            resultUrl,
+          }),
+        ],
+        selectedVideoJobId: null,
+        imageJobs: [],
+        selectedImageJobId: null,
+      });
+
+      const completedSection = model.sections.find(
+        (s) => s.id === "completed-videos",
+      );
+      expect(completedSection).toBeDefined();
+      const item = completedSection?.items[0];
+      expect(item?.kind).toBe("video-job");
+      if (item?.kind === "video-job") {
+        expect(item.job.resultUrl).toBe(resultUrl);
+      }
+    });
+
+    it("maintains cancelled video jobs in failures bucket", () => {
+      const model = buildHistoryPanelViewModel({
+        filter: "all",
+        savedImages: [],
+        selectedImageId: null,
+        videoJobs: [
+          createVideoJob({
+            id: "video-cancelled",
+            prompt: "User cancelled",
+            status: "cancelled",
+          }),
+        ],
+        selectedVideoJobId: null,
+        imageJobs: [],
+        selectedImageJobId: null,
+      });
+
+      expect(model.sections).toHaveLength(1);
+      expect(model.sections[0]?.id).toBe("failures");
+      expect(model.sections[0]?.items[0]).toMatchObject({
+        kind: "video-job",
+        job: expect.objectContaining({ id: "video-cancelled", status: "cancelled" }),
+      });
     });
   });
 });

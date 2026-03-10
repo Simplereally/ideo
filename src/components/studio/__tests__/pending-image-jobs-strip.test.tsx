@@ -83,6 +83,7 @@ const MOCK_JOBS = [
 
 const mockState = {
   jobs: MOCK_JOBS,
+  selectedJobId: null,
   addJob: vi.fn(),
   startJob: vi.fn(),
   markJobCompleted: vi.fn(),
@@ -90,6 +91,7 @@ const mockState = {
   cancelJobLocal: vi.fn(),
   removeJob: vi.fn(),
   clearTerminalJobs: vi.fn(),
+  selectJob: vi.fn(),
 };
 
 // Track every selector call to verify the component selects s.jobs (stable)
@@ -111,6 +113,29 @@ vi.mock("@/store/image-jobs", () => ({
       getState: () => mockState,
     },
   ),
+}));
+
+// Mock video jobs store
+const mockVideoState = {
+  jobs: [],
+  selectedJobId: null,
+  selectJob: vi.fn(),
+};
+
+vi.mock("@/store/video-jobs", () => ({
+  useVideoJobsStore: (selector?: (s: typeof mockVideoState) => unknown) => {
+    if (selector) {
+      return selector(mockVideoState);
+    }
+    return mockVideoState;
+  },
+}));
+
+// Mock studio store
+vi.mock("@/lib/store", () => ({
+  useStudio: () => ({
+    selectImage: vi.fn(),
+  }),
 }));
 
 // Mock types with minimal definitions

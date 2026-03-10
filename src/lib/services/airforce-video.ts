@@ -10,25 +10,74 @@ interface VideoErrorBody {
   message?: string;
   error?: string | { message?: string };
   detail?: string;
+  upstreamStatus?: number;
+  upstreamBody?: unknown;
+  sentRequestBody?: unknown;
 }
 
-async function parseErrorBody(res: Response): Promise<string | null> {
+/**
+ * Structured diagnostics from route error responses.
+ * Useful for debugging contract mismatches and upstream failures.
+ */
+export interface AirforceVideoDiagnostics {
+  upstreamStatus?: number;
+  upstreamBody?: unknown;
+  sentRequestBody?: unknown;
+}
+
+/**
+ * Error thrown when Airforce video generation fails.
+ * Includes structured diagnostics for developers while keeping user-facing message concise.
+ */
+export class AirforceVideoError extends Error {
+  readonly diagnostics: AirforceVideoDiagnostics;
+
+  constructor(message: string, diagnostics: AirforceVideoDiagnostics = {}) {
+    super(message);
+    this.name = "AirforceVideoError";
+    this.diagnostics = diagnostics;
+  }
+}
+
+interface ParsedError {
+  message: string | null;
+  diagnostics: AirforceVideoDiagnostics;
+}
+
+async function parseErrorBody(res: Response): Promise<ParsedError> {
+  const diagnostics: AirforceVideoDiagnostics = {};
+
   try {
     const rawText = await res.text();
     try {
       const body = JSON.parse(rawText) as VideoErrorBody;
-      if (body.message) return body.message;
-      if (typeof body.error === "string") return body.error;
-      if (body.error && typeof body.error === "object" && body.error.message) {
-        return body.error.message;
+
+      // Extract diagnostics from route error response
+      if (typeof body.upstreamStatus === "number") {
+        diagnostics.upstreamStatus = body.upstreamStatus;
       }
-      if (body.detail) return body.detail;
-      return rawText || null;
+      if (body.upstreamBody !== undefined) {
+        diagnostics.upstreamBody = body.upstreamBody;
+      }
+      if (body.sentRequestBody !== undefined) {
+        diagnostics.sentRequestBody = body.sentRequestBody;
+      }
+
+      // Extract human-readable message
+      let message: string | null = null;
+      if (body.message) message = body.message;
+      else if (typeof body.error === "string") message = body.error;
+      else if (body.error && typeof body.error === "object" && body.error.message) {
+        message = body.error.message;
+      } else if (body.detail) message = body.detail;
+      else message = rawText || null;
+
+      return { message, diagnostics };
     } catch {
-      return rawText || null;
+      return { message: rawText || null, diagnostics };
     }
   } catch {
-    return null;
+    return { message: null, diagnostics };
   }
 }
 
@@ -43,6 +92,7 @@ function injectCredentials(
 export async function createAirforceVideoGeneration(
   payload: Pick<VideoGenerationCreateInput, "model" | "params" | "credentials">,
 ): Promise<VideoGenerationResult> {
+  const referenceImageUrls = payload.params.imageUrl ? [payload.params.imageUrl] : undefined;
   const body = injectCredentials(
     {
       model: payload.model,
@@ -52,7 +102,10 @@ export async function createAirforceVideoGeneration(
       resolution: payload.params.resolution,
       aspectRatio: payload.params.aspectRatio,
       generateAudio: payload.params.generateAudio,
-      imageUrl: payload.params.imageUrl,
+      imageUrl:
+        payload.model === "grok-imagine-video" ? undefined : payload.params.imageUrl,
+      image_urls:
+        payload.model === "grok-imagine-video" ? referenceImageUrls : undefined,
       seed: payload.params.seed,
     },
     payload.credentials,
@@ -65,8 +118,11 @@ export async function createAirforceVideoGeneration(
   });
 
   if (!res.ok) {
-    const message = await parseErrorBody(res);
-    throw new Error(message ?? `Airforce video API returned HTTP ${res.status}`);
+    const { message, diagnostics } = await parseErrorBody(res);
+    throw new AirforceVideoError(
+      message ?? `Airforce video API returned HTTP ${res.status}`,
+      diagnostics,
+    );
   }
 
   return (await res.json()) as VideoGenerationResult;

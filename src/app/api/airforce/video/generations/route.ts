@@ -17,23 +17,64 @@ const UPSTREAM = "https://api.airforce/v1/images/generations";
 interface RouteBody extends VideoRequestParams {
   model?: string;
   credentials?: { apiKey?: string };
+  image_urls?: string[];
 }
 
-async function parseErrorBody(upstream: Response): Promise<string> {
-  const rawText = await upstream.text().catch(() => "");
-  if (!rawText) return `Airforce API returned ${upstream.status}`;
+interface UpstreamErrorDetail {
+  message: string;
+  upstreamStatus: number;
+  upstreamBody?: unknown;
+}
 
-  try {
-    const parsed = JSON.parse(rawText) as { error?: string | { message?: string } };
-    if (typeof parsed.error === "string") return parsed.error;
-    if (parsed.error && typeof parsed.error === "object" && parsed.error.message) {
-      return parsed.error.message;
-    }
-  } catch {
-    // Fall back to raw text.
+/**
+ * Parse upstream error response and return structured detail.
+ * Preserves full upstream JSON payload when available for diagnostics.
+ */
+async function parseUpstreamError(upstream: Response): Promise<UpstreamErrorDetail> {
+  const rawText = await upstream.text().catch(() => "");
+  const fallbackMessage = `Airforce API returned HTTP ${upstream.status}`;
+
+  if (!rawText.trim()) {
+    return {
+      message: fallbackMessage,
+      upstreamStatus: upstream.status,
+    };
   }
 
-  return rawText.slice(0, 300);
+  // Attempt to parse as JSON for structured error info
+  try {
+    const parsed = JSON.parse(rawText) as Record<string, unknown>;
+
+    // Extract a human-readable message from common error shapes
+    let message: string | undefined;
+    if (typeof parsed.error === "string") {
+      message = parsed.error;
+    } else if (
+      parsed.error &&
+      typeof parsed.error === "object" &&
+      "message" in parsed.error &&
+      typeof (parsed.error as { message?: unknown }).message === "string"
+    ) {
+      message = (parsed.error as { message: string }).message;
+    } else if (typeof parsed.message === "string") {
+      message = parsed.message;
+    } else if (typeof parsed.detail === "string") {
+      message = parsed.detail;
+    }
+
+    return {
+      message: message ?? fallbackMessage,
+      upstreamStatus: upstream.status,
+      upstreamBody: parsed,
+    };
+  } catch {
+    // Not JSON; return truncated raw text
+    return {
+      message: rawText.slice(0, 500) || fallbackMessage,
+      upstreamStatus: upstream.status,
+      upstreamBody: rawText.slice(0, 1000),
+    };
+  }
 }
 
 export async function POST(request: Request) {
@@ -80,7 +121,15 @@ export async function POST(request: Request) {
   }
 
   try {
-    const upstreamBody = buildAirforceVideoRequest(body.model, body);
+    const normalizedBody: VideoRequestParams = {
+      ...body,
+      imageUrl:
+        body.imageUrl ??
+        (Array.isArray(body.image_urls) && typeof body.image_urls[0] === "string"
+          ? body.image_urls[0]
+          : undefined),
+    };
+    const upstreamBody = buildAirforceVideoRequest(body.model, normalizedBody);
     const upstream = await fetch(UPSTREAM, {
       method: "POST",
       headers: {
@@ -91,10 +140,17 @@ export async function POST(request: Request) {
     });
 
     if (!upstream.ok) {
-      return NextResponse.json(
-        { error: await parseErrorBody(upstream) },
-        { status: upstream.status },
-      );
+      const errorDetail = await parseUpstreamError(upstream);
+      // Include sent request shape for 500-class errors to aid contract debugging
+      const responseBody: Record<string, unknown> = {
+        error: errorDetail.message,
+        upstreamStatus: errorDetail.upstreamStatus,
+        upstreamBody: errorDetail.upstreamBody,
+      };
+      if (upstream.status >= 500) {
+        responseBody.sentRequestBody = upstreamBody;
+      }
+      return NextResponse.json(responseBody, { status: upstream.status });
     }
 
     const rawText = await upstream.text();

@@ -80,7 +80,18 @@ function extractItemsFromEventStream(rawText: string): AirforceMediaItem[] {
       const payload = line.slice(6).trim();
       if (!payload || payload === "[DONE]" || payload === ": keepalive") continue;
 
-      const parsed = JSON.parse(payload) as Record<string, unknown>;
+      // Defensive: skip malformed JSON chunks rather than exploding
+      let parsed: Record<string, unknown>;
+      try {
+        parsed = JSON.parse(payload) as Record<string, unknown>;
+      } catch {
+        // Malformed chunk; log at debug level and continue to next
+        if (process.env.NODE_ENV === "development") {
+          console.warn("[airforce-video] Skipping malformed SSE chunk:", payload.slice(0, 100));
+        }
+        continue;
+      }
+
       const nextItems = extractItemsFromObject(parsed);
       if (nextItems.length > 0) {
         items = nextItems;
@@ -99,27 +110,29 @@ export function buildAirforceVideoRequest(
   modelId: string,
   params: VideoRequestParams,
 ): Record<string, unknown> {
-  const body: Record<string, unknown> = {
-    model: modelId,
-    prompt: params.prompt,
-    n: 1,
-    response_format: "url",
-    sse: true,
-    size: "1024x1024",
-  };
-
+  // Model-specific body construction - no shared image-ish fields (size, n, response_format)
   switch (modelId) {
     case "grok-imagine-video": {
-      body.mode = "normal";
-      body.resolution = resolveStringOption(
-        params.resolution,
-        new Set(["480p", "720p"]),
-        "480p",
-      );
+      // Grok Imagine Video uses distinct request shapes for text-to-video vs
+      // image-to-video. When an image is provided, `aspectRatio` is omitted
+      // (the video inherits the image's aspect) and `image_urls` is sent.
+      const body: Record<string, unknown> = {
+        model: modelId,
+        prompt: params.prompt,
+        sse: true,
+        mode: "normal",
+        resolution: resolveStringOption(
+          params.resolution,
+          new Set(["480p", "720p"]),
+          "480p",
+        ),
+      };
 
       if (params.imageUrl) {
+        // Image-to-video: provide reference frame, no aspectRatio
         body.image_urls = [params.imageUrl];
       } else {
+        // Text-to-video: aspectRatio required since no reference frame
         body.aspectRatio = resolveStringOption(
           params.aspectRatio,
           new Set(["3:2", "2:3", "1:1"]),
@@ -129,52 +142,65 @@ export function buildAirforceVideoRequest(
       return body;
     }
     case "sora-2": {
-      body.aspectRatio = resolveStringOption(
-        params.aspectRatio,
-        new Set(["portrait", "landscape"]),
-        "portrait",
-      );
-      body.duration = resolveNumberOption(
-        params.duration,
-        new Set([10, 15]),
-        10,
-      );
+      const body: Record<string, unknown> = {
+        model: modelId,
+        prompt: params.prompt,
+        sse: true,
+        aspectRatio: resolveStringOption(
+          params.aspectRatio,
+          new Set(["portrait", "landscape"]),
+          "portrait",
+        ),
+        duration: resolveNumberOption(
+          params.duration,
+          new Set([10, 15]),
+          10,
+        ),
+      };
       if (params.imageUrl) {
         body.image_urls = [params.imageUrl];
       }
       return body;
     }
     case "veo-3.1-fast": {
-      body.aspectRatio = resolveStringOption(
-        params.aspectRatio,
-        new Set(["16:9", "9:16"]),
-        "16:9",
-      );
+      const body: Record<string, unknown> = {
+        model: modelId,
+        prompt: params.prompt,
+        sse: true,
+        aspectRatio: resolveStringOption(
+          params.aspectRatio,
+          new Set(["16:9", "9:16"]),
+          "16:9",
+        ),
+      };
       if (params.imageUrl) {
         body.start_frame_url = params.imageUrl;
       }
       return body;
     }
     case "wan-2.6": {
-      body.aspectRatio = resolveStringOption(
-        params.aspectRatio,
-        new Set(["16:9", "9:16"]),
-        "16:9",
-      );
-      body.duration = resolveNumberOption(
-        params.duration,
-        new Set([5, 10, 15]),
-        5,
-      );
-      body.resolution = resolveStringOption(
-        params.resolution,
-        new Set(["720P", "1080P"]),
-        "720P",
-      );
-      body.sound = params.generateAudio ?? true;
-      if (params.imageUrl) {
-        body.wan_image_url = params.imageUrl;
-      }
+      // Conservative payload for Airforce's Wan 2.6 proxy.
+      // Fields like `aspectRatio`, `sound`, and `wan_image_url` are omitted because
+      // they are not documented in the official Alibaba Wan API and may cause
+      // upstream 500s or be silently ignored. We send only the minimal set that
+      // is reasonably safe based on Airforce's image-style endpoint pattern.
+      const body: Record<string, unknown> = {
+        model: modelId,
+        prompt: params.prompt,
+        sse: true,
+        duration: resolveNumberOption(
+          params.duration,
+          new Set([5, 10, 15]),
+          5,
+        ),
+        resolution: resolveStringOption(
+          params.resolution,
+          new Set(["720P", "1080P"]),
+          "720P",
+        ),
+      };
+      // Image-to-video is not supported for wan-2.6 through Airforce due to
+      // lack of documented field name. Callers should use AIML API for i2v.
       return body;
     }
     default:

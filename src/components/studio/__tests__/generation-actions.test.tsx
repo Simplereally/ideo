@@ -339,10 +339,10 @@ describe("GenerationActionsProvider", () => {
     mocks.studioState.provider = "airforce" as const;
     mocks.studioState.model = "airforce:wan-2.6";
     mocks.studioState.prompt = "A neon koi fish swimming through clouds";
-    mocks.studioState.videoAspectRatio = "9:16";
+    mocks.studioState.videoAspectRatio = "9:16"; // ignored by wan-2.6 Airforce adapter
     mocks.studioState.videoResolution = "720P";
     mocks.studioState.duration = 5;
-    mocks.studioState.generateAudio = true;
+    mocks.studioState.generateAudio = true; // ignored by wan-2.6 Airforce adapter
 
     mocks.createVideoGeneration.mockResolvedValue({
       id: "airforce-video-1",
@@ -362,6 +362,8 @@ describe("GenerationActionsProvider", () => {
       .setup()
       .click(screen.getByRole("button", { name: /generate image/i }));
 
+    // Note: aspectRatio and generateAudio are omitted for wan-2.6 through Airforce
+    // because these fields are undocumented and may cause upstream 500s
     await waitFor(() => {
       expect(mocks.createVideoGeneration).toHaveBeenCalledWith({
         provider: "airforce",
@@ -370,8 +372,6 @@ describe("GenerationActionsProvider", () => {
           prompt: "A neon koi fish swimming through clouds",
           duration: 5,
           resolution: "720P",
-          aspectRatio: "9:16",
-          generateAudio: true,
         },
         credentials: undefined,
       });
@@ -464,5 +464,48 @@ describe("GenerationActionsProvider", () => {
       "https://example.com/image-2.png",
       "https://example.com/image-1.png",
     ]);
+  });
+
+  it("marks video job as failed when initial submission fails (parity with image failure)", async () => {
+    mocks.studioState.provider = "aiml" as const;
+    mocks.studioState.model = "aiml:klingai/video-v3-pro-text-to-video";
+    mocks.studioState.prompt = "A sunset over mountains";
+    mocks.studioState.duration = 5;
+
+    const apiError = new Error("API key invalid");
+    mocks.createVideoGeneration.mockRejectedValue(apiError);
+
+    render(
+      <GenerationActionsProvider>
+        <Harness />
+      </GenerationActionsProvider>,
+    );
+
+    await userEvent
+      .setup()
+      .click(screen.getByRole("button", { name: /generate image/i }));
+
+    await waitFor(() => {
+      expect(mocks.createVideoGeneration).toHaveBeenCalled();
+    });
+
+    // Temporary job should be added first (queued state)
+    expect(mocks.videoStoreState.addJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "queued",
+        prompt: "A sunset over mountains",
+      }),
+    );
+
+    // On failure, the job should be marked as error (not removed)
+    await waitFor(() => {
+      expect(mocks.videoStoreState.markJobError).toHaveBeenCalledWith(
+        expect.any(String),
+        "API key invalid",
+      );
+    });
+
+    // The job should NOT be removed — it stays in history for retry
+    expect(mocks.videoStoreState.removeJob).not.toHaveBeenCalled();
   });
 });

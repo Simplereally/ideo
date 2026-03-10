@@ -38,6 +38,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body
+        suppressHydrationWarning
         className={`${inter.variable} ${newsreader.variable} antialiased selection:bg-blue-500/20 selection:text-blue-900 dark:selection:bg-blue-400/30 dark:selection:text-blue-100`}
       >
         <ErrorSuppressor />

@@ -6,6 +6,7 @@ import {
   useReducer,
   useEffect,
   useCallback,
+  useState,
   type ReactNode,
 } from "react";
 import {
@@ -359,6 +360,7 @@ const StudioContext = createContext<StudioContextValue | null>(null);
 
 export function StudioProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(studioReducer, initialState);
+  const [isHistoryHydrated, setIsHistoryHydrated] = useState(false);
 
   // Hydrate from localStorage on mount + purge legacy secrets
   useEffect(() => {
@@ -375,17 +377,21 @@ export function StudioProvider({ children }: { children: ReactNode }) {
       });
     } catch {
       // SSR or localStorage unavailable — ignore
+    } finally {
+      setIsHistoryHydrated(true);
     }
   }, []);
 
   // Persist history
   useEffect(() => {
+    if (!isHistoryHydrated) return;
+
     try {
       localStorage.setItem("ideo-history", JSON.stringify(state.history));
     } catch {
       // ignore
     }
-  }, [state.history]);
+  }, [isHistoryHydrated, state.history]);
 
   // ---- Action creators (stable refs via useCallback) ----
 

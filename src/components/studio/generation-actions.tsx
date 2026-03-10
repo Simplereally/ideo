@@ -20,6 +20,7 @@ import {
   type VideoRequestParams,
 } from "@/lib/types";
 import { createVideoGeneration, getVideoGeneration } from "@/lib/services/video-generation";
+import { AirforceVideoError } from "@/lib/services/airforce-video";
 import { pollVideoGeneration, type PollHandle } from "@/lib/services/video-polling";
 import { useVideoJobsStore } from "@/store/video-jobs";
 import { useImageJobsStore, type ImageJob, type ImageRetryPayload } from "@/store/image-jobs";
@@ -376,6 +377,31 @@ export function GenerationActionsProvider({
 
       isSubmittingVideoRef.current = true;
       setIsSubmittingVideo(true);
+
+      // Create a temporary queued job immediately so the UI can show pending state
+      const tempJobId = crypto.randomUUID();
+      const timestamp = Date.now();
+      addVideoJob({
+        id: tempJobId,
+        model,
+        provider,
+        prompt,
+        params: { ...params, prompt },
+        status: "queued",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      });
+
+      if (replaceJobId) {
+        removeVideoJob(replaceJobId);
+      }
+      if (selectNewJob) {
+        selectVideoJob(tempJobId);
+      }
+      if (clearPrompt) {
+        setPrompt("");
+      }
+
       try {
         const credentials = buildProviderCredentials(
           provider,
@@ -389,7 +415,8 @@ export function GenerationActionsProvider({
           credentials,
         });
 
-        const timestamp = Date.now();
+        // Swap the temp job with the real server-returned job
+        removeVideoJob(tempJobId);
         addVideoJob({
           id: createResult.id,
           model,
@@ -398,18 +425,11 @@ export function GenerationActionsProvider({
           params: { ...params, prompt },
           status: createResult.status,
           createdAt: timestamp,
-          updatedAt: timestamp,
+          updatedAt: Date.now(),
         });
 
-        if (replaceJobId) {
-          removeVideoJob(replaceJobId);
-        }
         if (selectNewJob) {
           selectVideoJob(createResult.id);
-        }
-
-        if (clearPrompt) {
-          setPrompt("");
         }
 
         if (createResult.status === "completed" && createResult.videoUrl) {
@@ -426,11 +446,21 @@ export function GenerationActionsProvider({
 
         startPollingJob(createResult.id, provider);
       } catch (error: unknown) {
+        // Mark the temporary job as failed (parity with image failure handling)
         const message =
           error instanceof Error
             ? error.message
             : "Failed to start video generation";
+        markVideoJobError(tempJobId, message);
         toast.error(message);
+
+        // Surface structured diagnostics for developer debugging
+        if (error instanceof AirforceVideoError) {
+          console.error("[AirforceVideoError]", {
+            message: error.message,
+            diagnostics: error.diagnostics,
+          });
+        }
       } finally {
         isSubmittingVideoRef.current = false;
         setIsSubmittingVideo(false);

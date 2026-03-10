@@ -43,6 +43,7 @@ export type HistoryPanelItem =
       kind: "image-job";
       key: string;
       job: ImageJob;
+      isSelected: boolean;
     };
 
 export interface HistoryPanelSection {
@@ -71,6 +72,7 @@ export interface BuildHistoryPanelViewModelInput {
   videoJobs: readonly VideoJob[];
   selectedVideoJobId: string | null;
   imageJobs: readonly ImageJob[];
+  selectedImageJobId: string | null;
 }
 
 const ACTIVE_VIDEO_STATUSES: ReadonlySet<VideoGenerationStatus> = new Set([
@@ -164,6 +166,7 @@ export function buildHistoryPanelViewModel({
   videoJobs,
   selectedVideoJobId,
   imageJobs,
+  selectedImageJobId,
 }: BuildHistoryPanelViewModelInput): HistoryPanelViewModel {
   const videoItemsByBucket: Record<HistoryBucket, HistoryPanelItem[]> = {
     active: [],
@@ -200,6 +203,7 @@ export function buildHistoryPanelViewModel({
       kind: "image-job",
       key: job.id,
       job,
+      isSelected: selectedImageJobId === job.id,
     });
   }
 
