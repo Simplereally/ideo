@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useCallback, useMemo, useRef } from "react";
-import { Image as ImageIcon } from "lucide-react";
 import {
   Combobox,
   ComboboxContent,
@@ -14,6 +13,23 @@ import { useStudio } from "@/lib/store";
 import { ASPECT_RATIOS } from "@/lib/types";
 import type { AspectRatio } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { ratioLabel, ratioOrientation } from "@/lib/aspect-ratio-utils";
+
+function RatioIcon({ ratio, className }: { ratio: string; className?: string }) {
+  const orientation = ratioOrientation(ratio);
+
+  return (
+    <span
+      className={cn(
+        "inline-block rounded-[2px] border-[1.5px] border-current shrink-0",
+        orientation === "wide" && "w-[18px] h-[13px]",
+        orientation === "tall" && "w-[13px] h-[18px]",
+        orientation === "square" && "w-[15px] h-[15px]",
+        className,
+      )}
+    />
+  );
+}
 
 interface AspectRatioComboboxProps {
   className?: string;
@@ -56,40 +72,38 @@ export function AspectRatioCombobox({ className }: AspectRatioComboboxProps) {
       inputValue={inputValue}
       onInputValueChange={setInputValue}
     >
-      {/* Trigger button - preserves exact look */}
+      {/* Trigger button */}
       <button
         ref={anchorRef}
         type="button"
         onClick={() => setOpen(true)}
         className={cn(
-          "hidden sm:flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium",
+          "flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium",
           "text-muted-foreground hover:bg-muted hover:text-foreground",
           "transition-colors",
           className
         )}
       >
-        <ImageIcon className="size-4 opacity-50" />
+        <RatioIcon ratio={state.aspectRatio} className="opacity-50" />
         <span className="text-foreground font-semibold">
-          {state.aspectRatio}
+          {ratioLabel(state.aspectRatio)} ({state.aspectRatio})
         </span>
       </button>
 
       {/* Dropdown content */}
-      <ComboboxContent anchor={anchorRef} className="w-[200px]">
+      <ComboboxContent anchor={anchorRef} className="w-[220px]">
         <ComboboxInput placeholder="Search ratios..." className="h-9" />
         <ComboboxList>
           <ComboboxEmpty>No ratios found</ComboboxEmpty>
 
           {filteredRatios.map((ratio) => (
             <ComboboxItem key={ratio.value} value={ratio.value}>
-              <div className="flex items-center gap-3 w-full">
-                <span className="text-lg opacity-60 w-5 text-center">
-                  {ratio.icon}
-                </span>
+              <div className="flex items-center gap-2.5 w-full">
+                <RatioIcon ratio={ratio.value} className="opacity-60" />
                 <div className="flex flex-col gap-0.5">
-                  <span className="font-medium">{ratio.value}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {ratio.label}
+                  <span className="font-medium">{ratioLabel(ratio.value)}</span>
+                  <span className="text-[10px] text-muted-foreground">
+                    {ratio.value}
                   </span>
                 </div>
               </div>

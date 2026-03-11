@@ -5,6 +5,13 @@ import { extractApiKey } from "@/lib/server/extract-credentials";
 import { generationLimiter, getClientIp, rateLimitResponse } from "@/lib/server/rate-limit";
 import { resolveApiKey } from "@/lib/server/resolve-keys";
 import {
+  logGenerationProviderError,
+  logGenerationRequest,
+  logGenerationResponse,
+  logGenerationTextResponse,
+} from "@/lib/server/generation-debug";
+import {
+  AirforceVideoProviderError,
   buildAirforceVideoRequest,
   extractAirforceVideoItems,
   isSupportedAirforceVideoModel,
@@ -17,23 +24,127 @@ const UPSTREAM = "https://api.airforce/v1/images/generations";
 interface RouteBody extends VideoRequestParams {
   model?: string;
   credentials?: { apiKey?: string };
+  image_urls?: string[];
 }
 
-async function parseErrorBody(upstream: Response): Promise<string> {
-  const rawText = await upstream.text().catch(() => "");
-  if (!rawText) return `Airforce API returned ${upstream.status}`;
+interface UpstreamErrorDetail {
+  message: string;
+  upstreamStatus: number;
+  upstreamBody?: unknown;
+}
 
-  try {
-    const parsed = JSON.parse(rawText) as { error?: string | { message?: string } };
-    if (typeof parsed.error === "string") return parsed.error;
-    if (parsed.error && typeof parsed.error === "object" && parsed.error.message) {
-      return parsed.error.message;
-    }
-  } catch {
-    // Fall back to raw text.
+function addGrokImageToVideoErrorHint(
+  requestBody: Record<string, unknown>,
+  upstreamStatus: number,
+  message: string,
+): string {
+  if (upstreamStatus !== 400) return message;
+  if (requestBody.model !== "grok-imagine-video") return message;
+  if (!Array.isArray(requestBody.image_urls) || requestBody.image_urls.length === 0) {
+    return message;
   }
 
-  return rawText.slice(0, 300);
+  const normalizedMessage = message.trim();
+  const isOpaqueProvider400 =
+    /provider error \(400 bad request\)/i.test(normalizedMessage) ||
+    normalizedMessage === "Airforce API returned HTTP 400";
+
+  if (!isOpaqueProvider400) {
+    return message;
+  }
+
+  return `${normalizedMessage} Airforce Grok image-to-video sometimes rejects specific prompt and reference-image combinations with an opaque 400. This request shape is valid; try a less suggestive prompt or a different reference image.`;
+}
+
+function isAirforceProviderError(error: unknown): error is AirforceVideoProviderError {
+  return (
+    error instanceof AirforceVideoProviderError ||
+    (typeof error === "object" &&
+      error !== null &&
+      (error as { name?: unknown }).name === "AirforceVideoProviderError" &&
+      typeof (error as { httpStatus?: unknown }).httpStatus === "number")
+  );
+}
+
+async function parseUpstreamError(upstream: Response): Promise<UpstreamErrorDetail> {
+  const rawText = await upstream.text().catch(() => "");
+  const fallbackMessage = `Airforce API returned HTTP ${upstream.status}`;
+
+  if (!rawText.trim()) {
+    return {
+      message: fallbackMessage,
+      upstreamStatus: upstream.status,
+    };
+  }
+
+  try {
+    const parsed = JSON.parse(rawText) as {
+      message?: string;
+      detail?: string;
+      details?: unknown;
+      error?: string | { message?: string; detail?: string; details?: unknown };
+    };
+
+    if (typeof parsed.error === "string") {
+      return {
+        message: parsed.error,
+        upstreamStatus: upstream.status,
+        upstreamBody: parsed,
+      };
+    }
+
+    if (parsed.error && typeof parsed.error === "object" && parsed.error.message) {
+      const detailText =
+        typeof parsed.error.detail === "string" ? ` - ${parsed.error.detail}` : "";
+      return {
+        message: `${parsed.error.message}${detailText}`,
+        upstreamStatus: upstream.status,
+        upstreamBody: parsed.error.details ?? parsed,
+      };
+    }
+
+    if (parsed.message) {
+      return {
+        message: parsed.message,
+        upstreamStatus: upstream.status,
+        upstreamBody: parsed.details ?? parsed,
+      };
+    }
+
+    if (parsed.detail) {
+      return {
+        message: parsed.detail,
+        upstreamStatus: upstream.status,
+        upstreamBody: parsed.details ?? parsed,
+      };
+    }
+
+    return {
+      message: fallbackMessage,
+      upstreamStatus: upstream.status,
+      upstreamBody: parsed,
+    };
+  } catch {
+    return {
+      message: rawText.slice(0, 500) || fallbackMessage,
+      upstreamStatus: upstream.status,
+      upstreamBody: rawText.slice(0, 1000),
+    };
+  }
+}
+
+function normalizeRouteBody(body: RouteBody): VideoRequestParams {
+  const imageUrlsFromArray = Array.isArray(body.image_urls)
+    ? body.image_urls.filter(
+        (value): value is string => typeof value === "string" && value.trim().length > 0,
+      )
+    : undefined;
+
+  return {
+    ...body,
+    imageUrl: body.imageUrl ?? imageUrlsFromArray?.[0],
+    imageUrls: body.imageUrls ?? imageUrlsFromArray,
+  };
 }
 
 export async function POST(request: Request) {
@@ -48,28 +159,18 @@ export async function POST(request: Request) {
   }
 
   const clientKey = extractApiKey(body);
-  const keyResult = resolveApiKey(
-    clientKey,
-    process.env.AIRFORCE_API_KEY,
-    "Airforce",
-  );
+  const keyResult = resolveApiKey(clientKey, process.env.AIRFORCE_API_KEY, "Airforce");
   if (!keyResult.ok) {
     return NextResponse.json({ error: keyResult.error }, { status: 401 });
   }
   const apiKey = keyResult.value;
 
   if (!body.model || typeof body.model !== "string" || !body.prompt?.trim()) {
-    return NextResponse.json(
-      { error: "`model` and `prompt` are required" },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: "`model` and `prompt` are required" }, { status: 400 });
   }
 
   if (!isAllowedModel("airforce", body.model)) {
-    return NextResponse.json(
-      { error: `Invalid model: ${body.model}` },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: `Invalid model: ${body.model}` }, { status: 400 });
   }
 
   if (!isSupportedAirforceVideoModel(body.model)) {
@@ -79,8 +180,13 @@ export async function POST(request: Request) {
     );
   }
 
+  let upstreamBody: Record<string, unknown> | null = null;
+
   try {
-    const upstreamBody = buildAirforceVideoRequest(body.model, body);
+    const normalizedBody = normalizeRouteBody(body);
+    upstreamBody = await buildAirforceVideoRequest(body.model, normalizedBody);
+    logGenerationRequest("POST api/airforce/video/generations", upstreamBody);
+
     const upstream = await fetch(UPSTREAM, {
       method: "POST",
       headers: {
@@ -91,14 +197,36 @@ export async function POST(request: Request) {
     });
 
     if (!upstream.ok) {
-      return NextResponse.json(
-        { error: await parseErrorBody(upstream) },
-        { status: upstream.status },
+      const errorDetail = await parseUpstreamError(upstream);
+      errorDetail.message = addGrokImageToVideoErrorHint(
+        upstreamBody,
+        errorDetail.upstreamStatus,
+        errorDetail.message,
       );
+      logGenerationResponse("POST api/airforce/video/generations", errorDetail);
+
+      const responseBody: Record<string, unknown> = {
+        error: errorDetail.message,
+        upstreamStatus: errorDetail.upstreamStatus,
+        upstreamBody: errorDetail.upstreamBody,
+      };
+      if (upstream.status >= 500) {
+        responseBody.sentRequestBody = upstreamBody;
+      }
+
+      return NextResponse.json(responseBody, { status: upstream.status });
     }
 
     const rawText = await upstream.text();
+    logGenerationTextResponse(
+      "POST api/airforce/video/generations",
+      upstream.status,
+      rawText,
+    );
+
     const items = extractAirforceVideoItems(rawText);
+    logGenerationResponse("POST api/airforce/video/generations", items);
+
     if (items.length === 0) {
       return NextResponse.json(
         { error: "No video output generated by Airforce API" },
@@ -106,13 +234,13 @@ export async function POST(request: Request) {
       );
     }
 
-    const firstItem = items[0];
+    const lastItem = items[items.length - 1];
     let videoUrl: string | null = null;
 
-    if (firstItem.url) {
-      videoUrl = firstItem.url;
-    } else if (firstItem.b64_json) {
-      videoUrl = await uploadBase64ToR2(firstItem.b64_json, "video/mp4", "mp4");
+    if (lastItem.url) {
+      videoUrl = lastItem.url;
+    } else if (lastItem.b64_json) {
+      videoUrl = await uploadBase64ToR2(lastItem.b64_json, "video/mp4", "mp4");
     }
 
     if (!videoUrl) {
@@ -134,6 +262,28 @@ export async function POST(request: Request) {
 
     return NextResponse.json(result);
   } catch (error) {
+    if (isAirforceProviderError(error)) {
+      logGenerationProviderError(
+        "POST api/airforce/video/generations",
+        200,
+        error.httpStatus,
+        error.providerPayload,
+      );
+
+      return NextResponse.json(
+        {
+          error: addGrokImageToVideoErrorHint(
+            upstreamBody ?? {},
+            error.httpStatus,
+            error.message,
+          ),
+          upstreamStatus: error.httpStatus,
+          upstreamBody: error.providerPayload,
+        },
+        { status: error.httpStatus },
+      );
+    }
+
     const message =
       error instanceof Error ? error.message : "Airforce video generation failed";
     return NextResponse.json({ error: message }, { status: 502 });

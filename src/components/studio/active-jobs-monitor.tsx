@@ -44,6 +44,7 @@ function JobChip({
       transition={{ type: "spring", damping: 25, stiffness: 300 }}
       onClick={onSelect}
       onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return;
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           onSelect();
@@ -83,6 +84,7 @@ function JobChip({
           e.stopPropagation();
           onCancel();
         }}
+        onKeyDown={(e) => e.stopPropagation()}
         tabIndex={-1}
         aria-label="Cancel job"
         title="Cancel job"

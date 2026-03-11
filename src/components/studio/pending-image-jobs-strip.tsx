@@ -5,6 +5,8 @@ import { X, Clock } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useImageJobsStore } from "@/store/image-jobs";
 import type { ImageJob } from "@/store/image-jobs";
+import { useStudio } from "@/lib/store";
+import { useVideoJobsStore } from "@/store/video-jobs";
 import { MODELS, PROVIDER_SHORT_LABELS } from "@/lib/types";
 import type { Provider } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -112,10 +114,12 @@ const PendingCard = memo(function PendingCard({
   job,
   now,
   onCancel,
+  onSelect,
 }: {
   job: ImageJob;
   now: number;
   onCancel: (id: string) => void;
+  onSelect: (id: string) => void;
 }) {
   const isQueued = job.status === "queued";
   const elapsed = formatElapsed(job.createdAt, now);
@@ -130,6 +134,10 @@ const PendingCard = memo(function PendingCard({
     [job.id, onCancel],
   );
 
+  const handleSelect = useCallback(() => {
+    onSelect(job.id);
+  }, [job.id, onSelect]);
+
   return (
     <motion.div
       layout
@@ -138,8 +146,18 @@ const PendingCard = memo(function PendingCard({
       animate={{ opacity: 1, scale: 1, x: 0 }}
       exit={{ opacity: 0, scale: 0.96, x: -6 }}
       transition={CARD_TRANSITION}
+      onClick={handleSelect}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return;
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          handleSelect();
+        }
+      }}
+      role="button"
+      tabIndex={0}
       className={cn(
-        "group/card relative flex items-center gap-2",
+        "group/card relative flex items-center gap-2 text-left",
         "rounded-lg px-2.5 py-[7px]",
         // Surface
         "bg-card/95 backdrop-blur-md",
@@ -171,7 +189,7 @@ const PendingCard = memo(function PendingCard({
         <div className="flex items-center gap-1 text-[10px] leading-none">
           <span className={cn("size-[5px] rounded-full shrink-0", accent.dot)} />
           <span className="text-muted-foreground/70 truncate">
-            {providerLabel} · {getModelLabel(job.model)}
+            {providerLabel} · {isQueued ? "Queued" : "Generating"} · {getModelLabel(job.model)}
           </span>
           <span className="mx-0.5" />
           <span
@@ -194,6 +212,7 @@ const PendingCard = memo(function PendingCard({
       <button
         type="button"
         onClick={handleCancel}
+        onKeyDown={(e) => e.stopPropagation()}
         className={cn(
           "flex items-center justify-center size-[18px] rounded-md shrink-0",
           "text-muted-foreground/40",
@@ -228,6 +247,9 @@ export function PendingImageJobsStrip() {
     [jobs],
   );
   const cancelJob = useImageJobsStore((s) => s.cancelJobLocal);
+  const selectImageJob = useImageJobsStore((s) => s.selectJob);
+  const selectVideoJob = useVideoJobsStore((s) => s.selectJob);
+  const { selectImage } = useStudio();
 
   // Tick the elapsed timer every second while jobs are active.
   useEffect(() => {
@@ -248,6 +270,15 @@ export function PendingImageJobsStrip() {
   const handleCancel = useCallback(
     (id: string) => cancelJob(id),
     [cancelJob],
+  );
+
+  const handleSelect = useCallback(
+    (id: string) => {
+      selectImage(null);
+      selectVideoJob(null);
+      selectImageJob(id);
+    },
+    [selectImage, selectVideoJob, selectImageJob],
   );
 
   const jobCount = activeJobs.length;
@@ -300,6 +331,7 @@ export function PendingImageJobsStrip() {
                     job={job}
                     now={now}
                     onCancel={handleCancel}
+                    onSelect={handleSelect}
                   />
                 ))}
               </AnimatePresence>

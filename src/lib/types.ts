@@ -49,6 +49,8 @@ export interface ModelCapabilities {
   generateAudio?: boolean;
   /** Whether the model accepts a reference image URL */
   imageUrl?: boolean;
+  /** Maximum number of reference images the model accepts (default 1 when imageUrl is true) */
+  maxReferenceImages?: number;
   /** Whether the model accepts a reference audio URL */
   audioUrl?: boolean;
   /** Whether the model supports camera / shot-type selection */
@@ -123,6 +125,8 @@ export interface VideoRequestParams {
   generateAudio?: boolean;
   enhancePrompt?: boolean;
   imageUrl?: string;
+  imageUrls?: string[];
+  referenceImageUrls?: string[];
   audioUrl?: string;
   shotType?: VideoShotType;
   seed?: number;
@@ -138,6 +142,8 @@ export interface VideoJob {
   status: VideoGenerationStatus;
   createdAt: number;
   updatedAt: number;
+  /** True while the provider create request is still in flight. */
+  requestPending?: boolean;
   /** Presigned or public URL to the completed video */
   resultUrl?: string;
   /** Error message when status === "error" */
@@ -645,9 +651,8 @@ export const MODELS: ModelConfig[] = [
     capabilities: {
       durationOptions: [5, 10, 15],
       resolutionOptions: ["720P", "1080P"],
-      videoAspectRatios: ["16:9", "9:16"],
-      generateAudio: true,
-      imageUrl: true,
+      // videoAspectRatios and generateAudio omitted - undocumented fields
+      // imageUrl omitted - no documented i2v field for Airforce wan-2.6
     },
   },
 
@@ -660,9 +665,10 @@ export const MODELS: ModelConfig[] = [
     provider: "airforce",
     kind: "video",
     capabilities: {
-      videoAspectRatios: ["3:2", "2:3", "1:1"],
-      resolutionOptions: ["480p", "720p"],
+      videoAspectRatios: ["2:3", "3:2"],
+      resolutionOptions: ["480p", "720p", "1080p"],
       imageUrl: true,
+      maxReferenceImages: 2,
     },
   },
   {

@@ -12,13 +12,21 @@ import { X } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { InfoPanel } from "./info-panel";
+import { TouchImage } from "./touch-image";
+import { MobileInfoSheet } from "./mobile-info-sheet";
+import { ImageNavDots } from "./image-nav-dots";
 import { useStudio } from "@/lib/store";
 import { useVideoJobsStore } from "@/store/video-jobs";
 import { MODELS } from "@/lib/types";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { INFO_PANEL_WIDTH } from "@/lib/constants";
+import {
+  INFO_PANEL_WIDTH,
+  MOBILE_SHEET_PEEK_HEIGHT,
+} from "@/lib/constants";
+import { useIsMobile } from "@/hooks/use-mobile";
 const VALID_IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp", "gif"]);
+const MOBILE_MEDIA_GUTTER = 20;
 
 /** Extract a valid image file extension from a URL, or return a safe fallback. */
 function getImageExtension(url: string): string {
@@ -35,17 +43,25 @@ function getImageExtension(url: string): string {
   return ".img";
 }
 
-/** Static max dimension styles derived from INFO_PANEL_WIDTH.
- *  Tailwind cannot detect dynamic template-literal class names at build time,
- *  so we use inline styles for these viewport-relative constraints. */
-const mediaMaxStyles: CSSProperties = {
+/** Desktop max dimension styles derived from INFO_PANEL_WIDTH. */
+const desktopMediaMaxStyles: CSSProperties = {
   maxHeight: "calc(100vh - 12px)",
   maxWidth: `calc(100vw - ${INFO_PANEL_WIDTH}px - 12px)`,
+};
+
+/** Mobile max dimension styles - leave room for sheet peek. */
+const mobileMediaMaxStyles: CSSProperties = {
+  maxHeight: `calc(100dvh - ${MOBILE_SHEET_PEEK_HEIGHT + MOBILE_MEDIA_GUTTER}px)`,
+  maxWidth: "calc(100vw - 16px)",
 };
 
 export function ImageViewer() {
   const { state, closeImageViewer, openImageViewer, setPrompt } = useStudio();
   const image = state.selectedImage;
+  const isMobile = useIsMobile();
+
+  // Responsive media max styles
+  const mediaMaxStyles = isMobile ? mobileMediaMaxStyles : desktopMediaMaxStyles;
 
   // Zoom state
   const [zoomed, setZoomed] = useState(false);
@@ -153,6 +169,23 @@ export function ImageViewer() {
     return () => window.removeEventListener("keydown", handleKeyDown, true);
   }, [state.isImageViewerOpen, zoomed, showImage, image, state.history, openImageViewer]);
 
+  // Preload adjacent images for smooth swipe navigation on mobile
+  useEffect(() => {
+    if (!isMobile || !showImage || !image || state.history.length < 2) return;
+
+    const currentIndex = state.history.findIndex((img) => img.id === image.id);
+
+    // Preload previous and next images
+    const preloadIndices = [currentIndex - 1, currentIndex + 1].filter(
+      (i) => i >= 0 && i < state.history.length
+    );
+
+    preloadIndices.forEach((index) => {
+      const preloadImg = new Image();
+      preloadImg.src = state.history[index].imageUrl;
+    });
+  }, [isMobile, showImage, image, state.history]);
+
   // Zoom toggle: click to zoom in (scroll to click point), click to zoom out
   const handleZoomToggle = useCallback(
     (e: React.MouseEvent<HTMLImageElement>) => {
@@ -220,6 +253,42 @@ export function ImageViewer() {
 
   const hasContent = showVideo || showImage;
 
+  // Screen reader announcement for image changes
+  const [announcement, setAnnouncement] = useState("");
+
+  // Update announcement when image changes
+  useEffect(() => {
+    if (!showImage || !image) {
+      setAnnouncement("");
+      return;
+    }
+
+    const index = state.history.findIndex((img) => img.id === image.id);
+    if (index === -1) {
+      setAnnouncement("");
+      return;
+    }
+
+    setAnnouncement(`Image ${index + 1} of ${state.history.length}`);
+  }, [showImage, image, state.history]);
+
+  // Swipe navigation handlers for mobile
+  const handleSwipeLeft = useCallback(() => {
+    if (!image) return;
+    const currentIndex = state.history.findIndex((img) => img.id === image.id);
+    if (currentIndex < state.history.length - 1) {
+      openImageViewer(state.history[currentIndex + 1]);
+    }
+  }, [image, state.history, openImageViewer]);
+
+  const handleSwipeRight = useCallback(() => {
+    if (!image) return;
+    const currentIndex = state.history.findIndex((img) => img.id === image.id);
+    if (currentIndex > 0) {
+      openImageViewer(state.history[currentIndex - 1]);
+    }
+  }, [image, state.history, openImageViewer]);
+
   return (
     <Dialog
       open={state.isImageViewerOpen}
@@ -230,17 +299,18 @@ export function ImageViewer() {
       <DialogContent
         showCloseButton={false}
         className={cn(
-          "flex h-dvh max-h-dvh w-dvw max-w-dvw flex-row",
+          "flex h-dvh max-h-dvh w-dvw max-w-dvw overflow-hidden",
           "border-none bg-background/98 p-0 backdrop-blur-sm",
-          "sm:max-w-dvw"
+          "sm:max-w-dvw",
+          isMobile ? "flex-col" : "flex-row"
         )}
       >
         <DialogTitle className="sr-only">
           {showVideo ? "Video Viewer" : "Image Viewer"}
         </DialogTitle>
 
-        {/* Left Panel - Info */}
-        {hasContent && (
+        {/* Left Panel - Info (Desktop only) */}
+        {!isMobile && hasContent && (
           <InfoPanel
             prompt={prompt}
             negativePrompt={negativePrompt}
@@ -265,16 +335,20 @@ export function ImageViewer() {
             size="icon"
             onClick={closeImageViewer}
             className={cn(
-              "absolute top-3 right-3 z-10",
-              "size-9 rounded-xl cursor-pointer",
+              "absolute z-50",
+              isMobile
+                ? "right-3 bottom-3"
+                : "right-3 top-3",
+              "size-10 rounded-xl cursor-pointer",
               "bg-card/80 backdrop-blur-md",
               "border border-border/50",
               "text-muted-foreground hover:text-foreground",
               "hover:bg-card shadow-sm",
-              "transition-all duration-200"
+              "transition-all duration-200",
+              "active:scale-95"
             )}
           >
-            <X className="size-4" />
+            <X className="size-5" />
             <span className="sr-only">Close</span>
           </Button>
 
@@ -296,39 +370,83 @@ export function ImageViewer() {
 
           {/* Image Content */}
           {showImage && image && (
-            <div
-              ref={containerRef}
-              className={cn(
-                "relative rounded-2xl border border-border/50 shadow-2xl shadow-black/20",
-                zoomed
-                  ? "overflow-auto"
-                  : "overflow-hidden"
-              )}
-              style={zoomed ? mediaMaxStyles : undefined}
-              onClick={(e) => e.stopPropagation()}
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                ref={imgRef}
+            isMobile ? (
+              <TouchImage
                 src={image.imageUrl}
                 alt={image.prompt}
-                onLoad={handleImageLoad}
-                onClick={handleZoomToggle}
-                draggable={false}
-                className={cn(
-                  "select-none",
-                  zoomed
-                    ? "cursor-zoom-out"
-                    : cn(
-                        "object-contain",
-                        isZoomable && "cursor-zoom-in"
-                      )
-                )}
-                style={zoomed ? undefined : mediaMaxStyles}
+                onSwipeLeft={handleSwipeLeft}
+                onSwipeRight={handleSwipeRight}
+                onSwipeDown={closeImageViewer}
               />
-            </div>
+            ) : (
+              <div
+                ref={containerRef}
+                className={cn(
+                  "relative rounded-2xl border border-border/50 shadow-2xl shadow-black/20",
+                  zoomed
+                    ? "overflow-auto"
+                    : "overflow-hidden"
+                )}
+                style={zoomed ? mediaMaxStyles : undefined}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  ref={imgRef}
+                  src={image.imageUrl}
+                  alt={image.prompt}
+                  onLoad={handleImageLoad}
+                  onClick={handleZoomToggle}
+                  draggable={false}
+                  className={cn(
+                    "select-none",
+                    zoomed
+                      ? "cursor-zoom-out"
+                      : cn(
+                          "object-contain",
+                          isZoomable && "cursor-zoom-in"
+                        )
+                  )}
+                  style={zoomed ? undefined : mediaMaxStyles}
+                />
+              </div>
+            )
           )}
+
+          {/* Image Navigation Dots (Mobile only) */}
+          {isMobile && showImage && state.history.length > 1 && image && (
+            <ImageNavDots
+              total={state.history.length}
+              current={state.history.findIndex((img) => img.id === image.id)}
+              className="absolute bottom-2 left-0 right-0"
+            />
+          )}
+
+          {/* Screen reader announcement */}
+          <div
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+            className="sr-only"
+          >
+            {announcement}
+          </div>
         </div>
+
+        {/* Mobile: bottom sheet (rendered after main content for z-index) */}
+        {isMobile && hasContent && (
+          <MobileInfoSheet
+            prompt={prompt}
+            negativePrompt={negativePrompt}
+            modelLabel={modelLabel}
+            aspectRatio={aspectRatio}
+            timestamp={timestamp}
+            isVideo={showVideo}
+            provider={provider}
+            onDownload={handleDownload}
+            onUsePrompt={handleReusePrompt}
+          />
+        )}
       </DialogContent>
     </Dialog>
   );

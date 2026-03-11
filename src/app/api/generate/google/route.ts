@@ -5,6 +5,10 @@ import { isAllowedModel } from "@/lib/server/model-allowlist";
 import { generationLimiter, getClientIp, rateLimitResponse } from "@/lib/server/rate-limit";
 import { resolveApiKey } from "@/lib/server/resolve-keys";
 import { extractApiKey } from "@/lib/server/extract-credentials";
+import {
+  logGenerationRequest,
+  logGenerationResponse,
+} from "@/lib/server/generation-debug";
 import type { ImageGenerationRequest, ImageGenerationResponse } from "@/lib/types/generation";
 import { validateImageGenerationResponse } from "@/lib/types/generation";
 
@@ -89,11 +93,15 @@ export async function POST(request: Request) {
       config.personGeneration = body.personGeneration;
     }
 
-    const response = await ai.models.generateImages({
+    const googleRequest = {
       model: apiModelId,
       prompt: body.prompt,
       config,
-    });
+    };
+    logGenerationRequest("POST api/generate/google", googleRequest);
+
+    const response = await ai.models.generateImages(googleRequest);
+    logGenerationResponse("POST api/generate/google", response);
 
     const images = await Promise.all(
       (response.generatedImages ?? [])

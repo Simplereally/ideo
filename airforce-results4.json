@@ -1,0 +1,17 @@
+[
+  {
+    "name": "Test 1 (images array with 2 items)",
+    "status": 200,
+    "text": ": keepalive\n\n: keepalive\n\n: keepalive\n\ndata: {\"created\":1773112224,\"data\":[{\"url\":\"https://anondrop.net/1480764729591988224/vid.mp4\",\"b64_json\":null}]}\n\ndata: [DONE]\n\n"
+  },
+  {
+    "name": "Test 2 (image_url and image_url_2 + aspectRatio)",
+    "status": 200,
+    "text": ": keepalive\n\n: keepalive\n\ndata: {\"created\":1773112275,\"data\":[{\"url\":\"https://anondrop.net/1480764946517065739/vid.mp4\",\"b64_json\":null}]}\n\ndata: [DONE]\n\n"
+  },
+  {
+    "name": "Test 3 (image_url + aspectRatio)",
+    "status": 200,
+    "text": ": keepalive\n\n: keepalive\n\n: keepalive\n\ndata: {\"created\":1773112341,\"data\":[{\"url\":\"https://anondrop.net/1480765223274025000/vid.mp4\",\"b64_json\":null}]}\n\ndata: [DONE]\n\n"
+  }
+]

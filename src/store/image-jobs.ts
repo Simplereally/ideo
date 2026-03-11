@@ -48,15 +48,19 @@ export interface ImageRetryPayload {
 interface ImageJobsState {
   /** All tracked jobs, newest first. */
   jobs: ImageJob[];
+  /** Currently-selected job id (for detail view). */
+  selectedJobId: string | null;
 
   // ---- mutations ----
   addJob: (job: ImageJob) => void;
+  setJobStatus: (id: string, status: ImageJobStatus, patch?: Partial<ImageJob>) => void;
   startJob: (id: string) => void;
   markJobCompleted: (id: string, resultUrl: string) => void;
   markJobError: (id: string, message: string) => void;
   cancelJobLocal: (id: string) => void;
   removeJob: (id: string) => void;
   clearTerminalJobs: () => void;
+  selectJob: (id: string | null) => void;
   retryJob: (id: string) => ImageRetryPayload | null;
 }
 
@@ -88,13 +92,28 @@ export const IMAGE_JOBS_PERSIST_NAME = "ideo-image-jobs";
 // Store
 // ---------------------------------------------------------------------------
 
+function resolveSelectedJobId(
+  jobs: ImageJob[],
+  selectedJobId: string | null,
+): string | null {
+  return selectedJobId && jobs.some((job) => job.id === selectedJobId)
+    ? selectedJobId
+    : null;
+}
+
 export const useImageJobsStore = create<ImageJobsState>()(
   persist(
     (set, get) => ({
       jobs: [],
+      selectedJobId: null,
 
       addJob: (job) =>
         set((s) => ({ jobs: [job, ...s.jobs] })),
+
+      setJobStatus: (id, status, patch) =>
+        set((s) => ({
+          jobs: patchJob(s.jobs, id, { ...patch, status }),
+        })),
 
       startJob: (id) =>
         set((s) => ({
@@ -124,17 +143,24 @@ export const useImageJobsStore = create<ImageJobsState>()(
       removeJob: (id) =>
         set((s) => ({
           jobs: s.jobs.filter((j) => j.id !== id),
+          selectedJobId: s.selectedJobId === id ? null : s.selectedJobId,
         })),
 
       clearTerminalJobs: () =>
-        set((s) => ({
-          jobs: s.jobs.filter(
+        set((s) => {
+          const jobs = s.jobs.filter(
             (j) =>
               j.status !== "completed" &&
               j.status !== "error" &&
               j.status !== "cancelled",
-          ),
-        })),
+          );
+          return {
+            jobs,
+            selectedJobId: resolveSelectedJobId(jobs, s.selectedJobId),
+          };
+        }),
+
+      selectJob: (id) => set({ selectedJobId: id }),
 
       retryJob: (id) => {
         const job = get().jobs.find((j) => j.id === id);

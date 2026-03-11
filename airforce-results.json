@@ -1,0 +1,37 @@
+[
+  {
+    "name": "Test 1 (image_urls array)",
+    "status": 200,
+    "text": ": keepalive\n\n: keepalive\n\n: keepalive\n\ndata: {\"error\":\"Provider error (400 Bad Request)\"}\n\n"
+  },
+  {
+    "name": "Test 2 (image_url string)",
+    "status": 200,
+    "text": "{\"created\":1773111452,\"data\":[{\"url\":\"https://anondrop.net/1480761491228594318/vid.mp4\",\"b64_json\":null}]}"
+  },
+  {
+    "name": "Test 3 (imageUrl string)",
+    "status": 200,
+    "text": "{\"created\":1773111490,\"data\":[{\"url\":\"https://anondrop.net/1480761651790745700/vid.mp4\",\"b64_json\":null}]}"
+  },
+  {
+    "name": "Test 4 (reference_image)",
+    "status": 200,
+    "text": "{\"created\":1773111552,\"data\":[{\"url\":\"https://anondrop.net/1480761914005913613/vid.mp4\",\"b64_json\":null}]}"
+  },
+  {
+    "name": "Test 5 (image_url + mode)",
+    "status": 200,
+    "text": "{\"created\":1773111611,\"data\":[{\"url\":\"https://anondrop.net/1480762156717707295/vid.mp4\",\"b64_json\":null}]}"
+  },
+  {
+    "name": "Test 6 (image)",
+    "status": 200,
+    "text": "{\"created\":1773111682,\"data\":[{\"url\":\"https://anondrop.net/1480762459198460040/vid.mp4\",\"b64_json\":null}]}"
+  },
+  {
+    "name": "Test 7 (No image)",
+    "status": 200,
+    "text": "{\"created\":1773111741,\"data\":[{\"url\":\"https://anondrop.net/1480762704837869599/vid.mp4\",\"b64_json\":null}]}"
+  }
+]

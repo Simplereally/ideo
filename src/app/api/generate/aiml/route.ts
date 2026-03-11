@@ -4,6 +4,11 @@ import { isAllowedModel } from "@/lib/server/model-allowlist";
 import { generationLimiter, getClientIp, rateLimitResponse } from "@/lib/server/rate-limit";
 import { resolveApiKey } from "@/lib/server/resolve-keys";
 import { extractApiKey } from "@/lib/server/extract-credentials";
+import {
+  logGenerationRequest,
+  logGenerationResponse,
+  logGenerationTextResponse,
+} from "@/lib/server/generation-debug";
 import type { ImageGenerationRequest, ImageGenerationResponse } from "@/lib/types/generation";
 import { validateImageGenerationResponse } from "@/lib/types/generation";
 import { MODELS } from "@/lib/types";
@@ -170,6 +175,8 @@ export async function POST(request: Request) {
   aimlBody.enable_safety_checker = false;
 
   try {
+    logGenerationRequest("POST api/generate/aiml", aimlBody);
+
     const upstream = await fetch(UPSTREAM, {
       method: "POST",
       headers: {
@@ -180,7 +187,15 @@ export async function POST(request: Request) {
     });
 
     if (!upstream.ok) {
-      const errData = await upstream.json().catch(() => ({}));
+      const errText = await upstream.text().catch(() => "");
+      logGenerationTextResponse("POST api/generate/aiml", upstream.status, errText);
+
+      let errData: unknown = {};
+      try {
+        errData = errText ? JSON.parse(errText) : {};
+      } catch {
+        errData = {};
+      }
       const errMsg =
         (errData as { error?: { message?: string } | string }).error
           ? typeof (errData as { error: unknown }).error === "string"
@@ -196,6 +211,7 @@ export async function POST(request: Request) {
     const data = (await upstream.json()) as {
       data?: { url?: string; b64_json?: string }[];
     };
+    logGenerationResponse("POST api/generate/aiml", data);
     const images = await Promise.all(
       (data.data ?? []).map(async (image) => {
         if (image.url) {

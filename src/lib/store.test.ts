@@ -101,6 +101,7 @@ describe("applyModelDefaults", () => {
     expect(defaults).toMatchObject({
       generateAudio: false,
       videoImageUrl: "",
+      useSelectedImageForVideo: false,
       videoAudioUrl: "",
       videoShotType: "single",
       numberOfImages: 1,
@@ -162,6 +163,7 @@ describe("SET_MODEL", () => {
       videoAspectRatio: "21:9",
       generateAudio: true,
       videoImageUrl: "https://example.com/image.png",
+      useSelectedImageForVideo: true,
       videoAudioUrl: "https://example.com/audio.mp3",
       videoShotType: "multi",
       numberOfImages: 4,
@@ -177,6 +179,7 @@ describe("SET_MODEL", () => {
     // Video defaults must be reset
     expect(next.generateAudio).toBe(false);
     expect(next.videoImageUrl).toBe("");
+    expect(next.useSelectedImageForVideo).toBe(false);
     expect(next.videoAudioUrl).toBe("");
     expect(next.videoShotType).toBe("single");
     expect(next.numberOfImages).toBe(1);
@@ -323,6 +326,7 @@ describe("SET_PROVIDER", () => {
       videoAspectRatio: "21:9",
       generateAudio: true,
       videoImageUrl: "https://example.com/image.png",
+      useSelectedImageForVideo: true,
       videoAudioUrl: "https://example.com/audio.mp3",
       videoShotType: "multi",
       numberOfImages: 4,
@@ -361,6 +365,7 @@ describe("SET_PROVIDER", () => {
     // And verify the dirty state was actually cleaned:
     expect(viaSetModel.generateAudio).toBe(false);
     expect(viaSetModel.videoImageUrl).toBe("");
+    expect(viaSetModel.useSelectedImageForVideo).toBe(false);
     expect(viaSetModel.videoAudioUrl).toBe("");
     expect(viaSetModel.numberOfImages).toBe(1);
 
@@ -371,6 +376,7 @@ describe("SET_PROVIDER", () => {
       "videoAspectRatio",
       "generateAudio",
       "videoImageUrl",
+      "useSelectedImageForVideo",
       "videoAudioUrl",
       "videoShotType",
       "numberOfImages",
@@ -394,6 +400,7 @@ describe("SET_PROVIDER", () => {
       videoAspectRatio: "99:1",
       generateAudio: true,
       videoImageUrl: "https://dirty.example.com/img.png",
+      useSelectedImageForVideo: true,
       videoAudioUrl: "https://dirty.example.com/aud.mp3",
       videoShotType: "multi",
       numberOfImages: 4,
@@ -429,6 +436,7 @@ describe("SET_PROVIDER", () => {
       "videoAspectRatio",
       "generateAudio",
       "videoImageUrl",
+      "useSelectedImageForVideo",
       "videoAudioUrl",
       "videoShotType",
       "numberOfImages",

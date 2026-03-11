@@ -4,6 +4,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Clock, X } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useVideoJobsStore } from "@/store/video-jobs";
+import { useImageJobsStore } from "@/store/image-jobs";
 import { useStudio } from "@/lib/store";
 import { MODELS, PROVIDER_SHORT_LABELS } from "@/lib/types";
 import type { Provider, VideoJob } from "@/lib/types";
@@ -102,6 +103,7 @@ const PendingCard = memo(function PendingCard({
   onSelect: (id: string) => void;
 }) {
   const isQueued = job.status === "queued";
+  const isSubmitting = job.requestPending === true;
   const elapsed = formatElapsed(job.createdAt, now);
   const providerLabel = PROVIDER_SHORT_LABELS[job.provider] ?? job.provider;
   const accent = PROVIDER_ACCENT[job.provider];
@@ -128,6 +130,7 @@ const PendingCard = memo(function PendingCard({
       transition={CARD_TRANSITION}
       onClick={handleSelect}
       onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return;
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
           handleSelect();
@@ -161,7 +164,7 @@ const PendingCard = memo(function PendingCard({
         <div className="flex items-center gap-1 text-[10px] leading-none">
           <span className={cn("size-[5px] rounded-full shrink-0", accent.dot)} />
           <span className="text-muted-foreground/70 truncate">
-            {providerLabel} · {isQueued ? "Queued" : "Generating"} · {getModelLabel(job.model)}
+            {providerLabel} · {isSubmitting ? "Submitting" : isQueued ? "Queued" : "Generating"} · {getModelLabel(job.model)}
           </span>
           <span className="mx-0.5" />
           <span
@@ -178,6 +181,7 @@ const PendingCard = memo(function PendingCard({
       <button
         type="button"
         onClick={handleCancel}
+        onKeyDown={(e) => e.stopPropagation()}
         className={cn(
           "flex items-center justify-center size-[18px] rounded-md shrink-0",
           "text-muted-foreground/40",
@@ -205,6 +209,7 @@ export function PendingVideoJobsStrip() {
   );
   const cancelJob = useVideoJobsStore((s) => s.cancelJobLocal);
   const selectJob = useVideoJobsStore((s) => s.selectJob);
+  const selectImageJob = useImageJobsStore((s) => s.selectJob);
   const { selectImage } = useStudio();
 
   useEffect(() => {
@@ -229,9 +234,10 @@ export function PendingVideoJobsStrip() {
   const handleSelect = useCallback(
     (id: string) => {
       selectImage(null);
+      selectImageJob(null);
       selectJob(id);
     },
-    [selectImage, selectJob],
+    [selectImage, selectImageJob, selectJob],
   );
 
   const jobCount = activeJobs.length;

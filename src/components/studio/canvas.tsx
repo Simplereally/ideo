@@ -1,12 +1,16 @@
 "use client";
 
-import { useState, useRef, useLayoutEffect } from "react";
+import { useState, useRef, useLayoutEffect, useMemo } from "react";
 import {
   Maximize2,
   Download,
+  Copy,
   Film,
+  X,
   XCircle,
   AlertCircle,
+  RotateCcw,
+  ImageIcon,
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -17,9 +21,13 @@ import {
 } from "@/components/ui/tooltip";
 import { useStudio } from "@/lib/store";
 import { useVideoJobsStore } from "@/store/video-jobs";
+import { useImageJobsStore } from "@/store/image-jobs";
+import type { ImageJob } from "@/store/image-jobs";
 import { MODELS } from "@/lib/types";
 import type { VideoJob } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
+import { useGenerationActions } from "./generation-actions";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -65,6 +73,14 @@ function getVideoModelLabel(modelId: string): string {
   );
 }
 
+function getImageModelLabel(modelId: string): string {
+  return (
+    MODELS.find((m) => m.id === modelId)?.label ??
+    MODELS.find((m) => m.value === modelId)?.label ??
+    modelId
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Sub-components for video states
 // ---------------------------------------------------------------------------
@@ -97,6 +113,220 @@ function VideoProcessingState({ job }: { job: VideoJob }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Sub-components for image states
+// ---------------------------------------------------------------------------
+
+function ImageProcessingState({ job }: { job: ImageJob }) {
+  const isQueued = job.status === "queued";
+  return (
+    <motion.div
+      key={`image-processing-${job.id}`}
+      initial={{ opacity: 0, filter: "blur(10px)", scale: 0.95 }}
+      animate={{ opacity: 1, filter: "blur(0px)", scale: 1 }}
+      exit={{ opacity: 0, filter: "blur(10px)", scale: 1.05 }}
+      className="flex flex-col items-center gap-6"
+    >
+      <div className="relative flex items-center justify-center size-20">
+        <div className="absolute inset-0 border-[3px] border-border rounded-full" />
+        <div className="absolute inset-0 border-[3px] border-primary rounded-full border-t-transparent animate-spin" />
+        <ImageIcon className="size-6 text-primary" strokeWidth={1.5} />
+      </div>
+      <div className="flex flex-col items-center gap-2">
+        <p className="font-serif text-2xl text-muted-foreground animate-pulse">
+          {isQueued ? "Queued" : "Synthesizing"}
+        </p>
+        <p className="text-xs text-muted-foreground/60 max-w-xs text-center truncate">
+          {getImageModelLabel(job.model)} &middot; &ldquo;{job.prompt.slice(0, 60)}
+          {job.prompt.length > 60 ? "..." : ""}&rdquo;
+        </p>
+      </div>
+    </motion.div>
+  );
+}
+
+function ImageCancelledState({ onDismiss }: { onDismiss: () => void }) {
+  return (
+    <motion.div
+      key="image-cancelled"
+      initial={{ opacity: 0, scale: 0.96, filter: "blur(10px)" }}
+      animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+      exit={{ opacity: 0, scale: 0.96, filter: "blur(10px)" }}
+      className="flex flex-col items-center gap-4 bg-card/50 backdrop-blur-xl p-8 rounded-[2rem] border border-border shadow-2xl shadow-black/5"
+    >
+      <XCircle className="size-10 text-muted-foreground" strokeWidth={1.5} />
+      <p className="max-w-sm text-center text-sm font-medium text-foreground">
+        Image generation was cancelled
+      </p>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={onDismiss}
+        className="rounded-full text-muted-foreground hover:text-foreground mt-2"
+      >
+        Dismiss
+      </Button>
+    </motion.div>
+  );
+}
+
+function ImageErrorState({
+  job,
+  onRetry,
+  onDismiss,
+}: {
+  job: ImageJob;
+  onRetry: () => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <motion.div
+      key="image-error"
+      initial={{ opacity: 0, scale: 0.96, filter: "blur(10px)" }}
+      animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+      exit={{ opacity: 0, scale: 0.96, filter: "blur(10px)" }}
+      className="flex flex-col items-center gap-4 bg-card/50 backdrop-blur-xl p-8 rounded-[2rem] border border-destructive/30 shadow-2xl shadow-black/5"
+    >
+      <AlertCircle className="size-10 text-destructive" strokeWidth={1.5} />
+      <div className="flex flex-col items-center gap-1.5">
+        <p className="max-w-sm text-center text-sm font-medium text-foreground">
+          Image generation failed
+        </p>
+        {job.error && (
+          <p className="max-w-xs text-center text-xs text-muted-foreground">
+            {job.error}
+          </p>
+        )}
+      </div>
+      <div className="flex items-center gap-3 mt-2">
+        <Button
+          variant="default"
+          size="sm"
+          onClick={onRetry}
+          className="rounded-full"
+        >
+          <RotateCcw className="size-3.5 mr-1.5" />
+          Retry
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onDismiss}
+          className="rounded-full text-muted-foreground hover:text-foreground"
+        >
+          Dismiss
+        </Button>
+      </div>
+    </motion.div>
+  );
+}
+
+function ImageCompletedState({
+  job,
+  onDownload,
+  onCopyPrompt,
+  onDismiss,
+}: {
+  job: ImageJob;
+  onDownload: () => void;
+  onCopyPrompt: () => void;
+  onDismiss: () => void;
+}) {
+  const [hover, setHover] = useState(false);
+
+  return (
+    <motion.div
+      key={`image-completed-${job.id}`}
+      initial={{ opacity: 0, scale: 0.95, filter: "blur(20px)" }}
+      animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+      exit={{ opacity: 0, scale: 0.95, filter: "blur(20px)" }}
+      transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+      className="relative flex h-full w-full items-center justify-center px-4 py-3 sm:px-6 sm:py-4"
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+    >
+      <div className="relative h-full w-full flex items-center justify-center">
+        <div
+          className={cn(
+            MEDIA_FRAME_CLASS_NAME,
+            "hover:shadow-[0_32px_64px_-12px_rgba(0,0,0,0.15)]"
+          )}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={job.resultUrl!}
+            alt={job.prompt}
+            className="block max-h-full max-w-full object-contain"
+          />
+        </div>
+
+        {/* Actions — always in the DOM for accessibility */}
+        <div
+          className={cn(
+            "absolute inset-x-0 top-0 flex items-start justify-end p-6 pointer-events-none",
+            "transition-opacity duration-200",
+            hover ? "opacity-100" : "opacity-0 focus-within:opacity-100"
+          )}
+        >
+          <div className="pointer-events-auto flex items-center gap-3">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="secondary"
+                  size="icon"
+                  className="size-10 rounded-full bg-card/90 text-foreground backdrop-blur-md hover:bg-card shadow-lg hover:scale-105 transition-all"
+                  onClick={onDownload}
+                  aria-label="Download image"
+                  title="Download image"
+                >
+                  <Download className="size-4" aria-hidden="true" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" sideOffset={8} className="text-xs font-medium">
+                Download image
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="secondary"
+                  size="icon"
+                  className="size-10 rounded-full bg-card/90 text-foreground backdrop-blur-md hover:bg-card shadow-lg hover:scale-105 transition-all"
+                  onClick={onCopyPrompt}
+                  aria-label="Copy prompt"
+                  title="Copy prompt"
+                >
+                  <Copy className="size-4" aria-hidden="true" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" sideOffset={8} className="text-xs font-medium">
+                Copy prompt
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="secondary"
+                  size="icon"
+                  className="size-10 rounded-full bg-card/90 text-foreground backdrop-blur-md hover:bg-card shadow-lg hover:scale-105 transition-all"
+                  onClick={onDismiss}
+                  aria-label="Dismiss"
+                  title="Dismiss"
+                >
+                  <X className="size-4" aria-hidden="true" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" sideOffset={8} className="text-xs font-medium">
+                Dismiss
+              </TooltipContent>
+            </Tooltip>
+          </div>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
 function VideoCancelledState({ onDismiss }: { onDismiss: () => void }) {
   return (
     <motion.div
@@ -124,9 +354,11 @@ function VideoCancelledState({ onDismiss }: { onDismiss: () => void }) {
 
 function VideoErrorState({
   job,
+  onRetry,
   onDismiss,
 }: {
   job: VideoJob;
+  onRetry: () => void;
   onDismiss: () => void;
 }) {
   return (
@@ -148,14 +380,25 @@ function VideoErrorState({
           </p>
         )}
       </div>
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={onDismiss}
-        className="rounded-full text-muted-foreground hover:text-foreground mt-2"
-      >
-        Dismiss
-      </Button>
+      <div className="flex items-center gap-3 mt-2">
+        <Button
+          variant="default"
+          size="sm"
+          onClick={onRetry}
+          className="rounded-full"
+        >
+          <RotateCcw className="size-3.5 mr-1.5" />
+          Retry
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onDismiss}
+          className="rounded-full text-muted-foreground hover:text-foreground"
+        >
+          Dismiss
+        </Button>
+      </div>
     </motion.div>
   );
 }
@@ -243,6 +486,7 @@ function VideoPlayer({
 
 export function StudioCanvas() {
   const { state, openImageViewer } = useStudio();
+  const { retryVideoJob, retryImageJob } = useGenerationActions();
 
   const { status, selectedImage } = state;
   const [showImageControls, setShowImageControls] = useState(false);
@@ -250,24 +494,61 @@ export function StudioCanvas() {
   const imageControlsRef = useRef<HTMLDivElement>(null);
 
   // Video job state
-  const selectedJobId = useVideoJobsStore((s) => s.selectedJobId);
-  const jobs = useVideoJobsStore((s) => s.jobs);
-  const selectJob = useVideoJobsStore((s) => s.selectJob);
+  const selectedVideoJobId = useVideoJobsStore((s) => s.selectedJobId);
+  const videoJobs = useVideoJobsStore((s) => s.jobs);
+  const selectVideoJob = useVideoJobsStore((s) => s.selectJob);
 
-  const selectedVideoJob = selectedJobId
-    ? jobs.find((j) => j.id === selectedJobId) ?? null
+  const selectedVideoJob = selectedVideoJobId
+    ? videoJobs.find((j) => j.id === selectedVideoJobId) ?? null
     : null;
 
-  // Determine what to show: image takes precedence over video when both seem selected,
-  // but the stores are mutually exclusive (selecting one clears the other at the UI level).
-  const showImage = !selectedVideoJob && selectedImage;
+  // Image job state
+  const selectedImageJobId = useImageJobsStore((s) => s.selectedJobId);
+  const imageJobs = useImageJobsStore((s) => s.jobs);
+  const selectImageJob = useImageJobsStore((s) => s.selectJob);
+
+  const selectedImageJob = selectedImageJobId
+    ? imageJobs.find((j) => j.id === selectedImageJobId) ?? null
+    : null;
+
+  // Get first active image job for processing state (when no specific job selected)
+  // Include "completed" so completed jobs can be surfaced when selected
+  const activeImageJob = useMemo(
+    () => imageJobs.find((j) => j.status === "queued" || j.status === "generating" || j.status === "completed"),
+    [imageJobs],
+  );
+
+  // Determine what to show: explicit selections take precedence
+  const showImage = !selectedVideoJob && !selectedImageJob && selectedImage;
   const showVideo = !!selectedVideoJob;
+  const showImageJob = !!selectedImageJob;
+
+  async function handleCopyPrompt(prompt: string) {
+    try {
+      await navigator.clipboard.writeText(prompt);
+      toast.success("Prompt copied");
+    } catch {
+      toast.error("Failed to copy prompt");
+    }
+  }
 
   function handleImageDownload() {
     if (!selectedImage) return;
     const link = document.createElement("a");
     link.href = selectedImage.imageUrl;
     link.download = `ideo-${selectedImage.id}.png`;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+
+  function handleImageJobDownload() {
+    if (!selectedImageJob?.resultUrl) return;
+    const link = document.createElement("a");
+    link.href = selectedImageJob.resultUrl;
+    link.download = `ideo-image-${selectedImageJob.id}.png`;
     link.target = "_blank";
     link.rel = "noopener noreferrer";
     document.body.appendChild(link);
@@ -288,7 +569,21 @@ export function StudioCanvas() {
   }
 
   function handleVideoDismiss() {
-    selectJob(null);
+    selectVideoJob(null);
+  }
+
+  function handleVideoRetry() {
+    if (!selectedVideoJob) return;
+    void retryVideoJob(selectedVideoJob.id);
+  }
+
+  function handleImageJobDismiss() {
+    selectImageJob(null);
+  }
+
+  function handleImageJobRetry() {
+    if (!selectedImageJob) return;
+    void retryImageJob(selectedImageJob.id);
   }
 
   function handleImagePreviewClick(
@@ -306,8 +601,8 @@ export function StudioCanvas() {
   }
 
   function handleImageMouseLeave(e: React.MouseEvent<HTMLImageElement>) {
-    const nextTarget = e.relatedTarget as Node | null;
-    if (nextTarget && imageControlsRef.current?.contains(nextTarget)) return;
+    const nextTarget = e.relatedTarget;
+    if (nextTarget instanceof Node && imageControlsRef.current?.contains(nextTarget)) return;
     setShowImageControls(false);
   }
 
@@ -316,32 +611,51 @@ export function StudioCanvas() {
   }
 
   function handleImageControlsMouseLeave(e: React.MouseEvent<HTMLDivElement>) {
-    const nextTarget = e.relatedTarget as Node | null;
-    if (nextTarget && imagePreviewRef.current?.contains(nextTarget)) return;
+    const nextTarget = e.relatedTarget;
+    if (nextTarget instanceof Node && imagePreviewRef.current?.contains(nextTarget)) return;
     setShowImageControls(false);
   }
 
   return (
     <div className="absolute inset-0 z-10 flex items-center justify-center overflow-hidden px-3 py-2 sm:px-4 sm:py-3">
       <AnimatePresence mode="sync">
-        {/* ---- Image Generating State ---- */}
-        {status === "generating" && !showVideo && (
-          <motion.div
-            key="generating"
-            initial={{ opacity: 0, filter: "blur(10px)", scale: 0.95 }}
-            animate={{ opacity: 1, filter: "blur(0px)", scale: 1 }}
-            exit={{ opacity: 0, filter: "blur(10px)", scale: 1.05 }}
-            className="flex flex-col items-center gap-6"
-          >
-            <div className="relative flex items-center justify-center size-20">
-              <div className="absolute inset-0 border-[3px] border-border rounded-full" />
-              <div className="absolute inset-0 border-[3px] border-primary rounded-full border-t-transparent animate-spin" />
-            </div>
-            <p className="font-serif text-2xl text-muted-foreground animate-pulse">
-              Synthesizing
-            </p>
-          </motion.div>
+        {/* ---- Image Generating State (legacy status or active job with metadata) ---- */}
+        {status === "generating" && !showVideo && !showImageJob && activeImageJob && (
+          <ImageProcessingState job={activeImageJob} />
         )}
+
+        {/* ---- Selected Image Job: processing ---- */}
+        {selectedImageJob &&
+          (selectedImageJob.status === "queued" ||
+            selectedImageJob.status === "generating") && (
+            <ImageProcessingState job={selectedImageJob} />
+          )}
+
+        {/* ---- Selected Image Job: cancelled ---- */}
+        {selectedImageJob && selectedImageJob.status === "cancelled" && (
+          <ImageCancelledState onDismiss={handleImageJobDismiss} />
+        )}
+
+        {/* ---- Selected Image Job: error ---- */}
+        {selectedImageJob && selectedImageJob.status === "error" && (
+          <ImageErrorState
+            job={selectedImageJob}
+            onRetry={handleImageJobRetry}
+            onDismiss={handleImageJobDismiss}
+          />
+        )}
+
+        {/* ---- Selected Image Job: completed ---- */}
+        {selectedImageJob &&
+          selectedImageJob.status === "completed" &&
+          selectedImageJob.resultUrl && (
+            <ImageCompletedState
+              job={selectedImageJob}
+              onDownload={handleImageJobDownload}
+              onCopyPrompt={() => void handleCopyPrompt(selectedImageJob.prompt)}
+              onDismiss={handleImageJobDismiss}
+            />
+          )}
 
         {/* ---- Selected Video Job: processing ---- */}
         {selectedVideoJob &&
@@ -359,6 +673,7 @@ export function StudioCanvas() {
         {selectedVideoJob && selectedVideoJob.status === "error" && (
           <VideoErrorState
             job={selectedVideoJob}
+            onRetry={handleVideoRetry}
             onDismiss={handleVideoDismiss}
           />
         )}
@@ -471,6 +786,23 @@ export function StudioCanvas() {
                       Download image
                     </TooltipContent>
                   </Tooltip>
+
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="secondary"
+                        size="icon"
+                        className="size-10 rounded-full bg-card/90 text-foreground backdrop-blur-md hover:bg-card shadow-lg hover:scale-105 transition-all"
+                        onClick={() => handleCopyPrompt(selectedImage.prompt)}
+                        aria-label="Copy prompt"
+                      >
+                        <Copy className="size-4" aria-hidden="true" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" sideOffset={8} className="text-xs font-medium">
+                      Copy prompt
+                    </TooltipContent>
+                  </Tooltip>
                 </div>
               </div>
             </div>
@@ -481,7 +813,8 @@ export function StudioCanvas() {
         {status !== "generating" &&
           status !== "error" &&
           !showImage &&
-          !showVideo && (
+          !showVideo &&
+          !showImageJob && (
             <motion.div
               key="empty"
               initial={{ opacity: 0, filter: "blur(10px)" }}

@@ -1,0 +1,32 @@
+[
+  {
+    "name": "Test 1 (image_urls array)",
+    "status": 200,
+    "text": ": keepalive\n\n: keepalive\n\n: keepalive\n\ndata: {\"error\":\"Provider error (400 Bad Request)\"}\n\n"
+  },
+  {
+    "name": "Test 2 (image_url string)",
+    "status": 200,
+    "text": ": keepalive\n\n: keepalive\n\ndata: {\"created\":1773111879,\"data\":[{\"url\":\"https://anondrop.net/1480763283794300991/vid.mp4\",\"b64_json\":null}]}\n\ndata: [DONE]\n\n"
+  },
+  {
+    "name": "Test 3 (images array)",
+    "status": 200,
+    "text": ": keepalive\n\n: keepalive\n\n: keepalive\n\ndata: {\"created\":1773111934,\"data\":[{\"url\":\"https://anondrop.net/1480763506726015089/vid.mp4\",\"b64_json\":null}]}\n\ndata: [DONE]\n\n"
+  },
+  {
+    "name": "Test 4 (image string)",
+    "status": 200,
+    "text": ": keepalive\n\n: keepalive\n\ndata: {\"created\":1773111978,\"data\":[{\"url\":\"https://anondrop.net/1480763698929729639/vid.mp4\",\"b64_json\":null}]}\n\ndata: [DONE]\n\n"
+  },
+  {
+    "name": "Test 5 (image_url and image_url_2)",
+    "status": 200,
+    "text": ": keepalive\n\n: keepalive\n\ndata: {\"created\":1773112039,\"data\":[{\"url\":\"https://anondrop.net/1480763955898220635/vid.mp4\",\"b64_json\":null}]}\n\ndata: [DONE]\n\n"
+  },
+  {
+    "name": "Test 6 (image_urls array with 2 items)",
+    "status": 200,
+    "text": ": keepalive\n\n: keepalive\n\n: keepalive\n\ndata: {\"error\":\"Provider error (400 Bad Request)\"}\n\n"
+  }
+]

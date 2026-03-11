@@ -4,6 +4,11 @@ import { isAllowedModel } from "@/lib/server/model-allowlist";
 import { generationLimiter, getClientIp, rateLimitResponse } from "@/lib/server/rate-limit";
 import { resolveVertexCredentials } from "@/lib/server/resolve-keys";
 import { extractVertexCredentials } from "@/lib/server/extract-credentials";
+import {
+  logGenerationRequest,
+  logGenerationResponse,
+  logGenerationTextResponse,
+} from "@/lib/server/generation-debug";
 import type {
   ImageGenerationRequest,
   ImageGenerationResponse,
@@ -113,6 +118,12 @@ export async function POST(request: Request) {
 
   try {
     const upstreamUrl = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/${apiModelId}:predict`;
+    const vertexRequest = {
+      url: upstreamUrl,
+      instances: [{ prompt: body.prompt }],
+      parameters,
+    };
+    logGenerationRequest("POST api/generate/vertex", vertexRequest);
 
     const upstream = await fetch(upstreamUrl, {
       method: "POST",
@@ -126,7 +137,10 @@ export async function POST(request: Request) {
       }),
     });
 
-    const data = await upstream.json();
+    const rawText = await upstream.text();
+    logGenerationTextResponse("POST api/generate/vertex", upstream.status, rawText);
+    const data = rawText ? JSON.parse(rawText) : {};
+    logGenerationResponse("POST api/generate/vertex", data);
 
     if (!upstream.ok) {
       // Preserve meaningful upstream error messages.

@@ -1,4 +1,4 @@
-import { generatePresignedUrl } from "@/lib/s3";
+import { generatePresignedUrl, getPublicObjectUrl } from "@/lib/s3";
 
 // ---------------------------------------------------------------------------
 // Server-side helper: upload a base64-encoded image to R2, return public URL.
@@ -42,8 +42,8 @@ export async function uploadBufferToR2(
     throw new Error(`R2 PUT failed: ${res.status} ${res.statusText}`);
   }
 
-  // Strip query string to get the stable public object URL.
-  return presignedUrl.split("?")[0];
+  // Prefer the configured public URL; fall back to the presigned URL sans query.
+  return getPublicObjectUrl(fileName) ?? presignedUrl.split("?")[0];
 }
 
 /**

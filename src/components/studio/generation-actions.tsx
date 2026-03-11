@@ -20,10 +20,16 @@ import {
   type VideoRequestParams,
 } from "@/lib/types";
 import { createVideoGeneration, getVideoGeneration } from "@/lib/services/video-generation";
+import { AirforceVideoError } from "@/lib/services/airforce-video";
+import {
+  AirforceSubmissionCancelledError,
+  queueAirforceSubmission,
+} from "@/lib/services/airforce-submission-queue";
 import { pollVideoGeneration, type PollHandle } from "@/lib/services/video-polling";
 import { useVideoJobsStore } from "@/store/video-jobs";
 import { useImageJobsStore, type ImageJob, type ImageRetryPayload } from "@/store/image-jobs";
 import { useSettingsStore } from "@/store/settings";
+import { normalizeReferenceImageUrl } from "@/lib/services/reference-image-upload";
 import { buildProviderCredentials, injectCredentials } from "@/lib/services/provider-credentials";
 import { toast } from "sonner";
 import type {
@@ -32,8 +38,99 @@ import type {
   ImageGenerationResponse,
 } from "@/lib/types/generation";
 import { validateImageGenerationResponse } from "@/lib/types/generation";
+import { getSelectedCanvasImageSource } from "@/lib/canvas-selection";
+import { applyVideoReferenceImagesToParams } from "@/lib/video-reference-images";
 
 const MAX_IMAGE_JOB_ATTEMPTS = 2;
+
+function buildReferenceImageUrls(state: StudioState): {
+  imageUrl?: string;
+  imageUrls: string[];
+} {
+  const imageUrls = Array.from(
+    new Set(
+      [
+        state.videoImageUrl || undefined,
+        state.videoImageUrl2 || undefined,
+        state.useSelectedImageAsVideoReference
+          ? state.selectedImage?.imageUrl
+          : undefined,
+      ].filter((url): url is string => !!url),
+    ),
+  ).slice(0, 2);
+
+  return {
+    imageUrl: state.videoImageUrl || undefined,
+    imageUrls,
+  };
+}
+
+function isPublicProviderReferenceUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url, window.location.origin);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return false;
+    }
+
+    const hostname = parsed.hostname.toLowerCase();
+    return !new Set(["localhost", "127.0.0.1", "0.0.0.0", "::1"]).has(hostname);
+  } catch {
+    return false;
+  }
+}
+
+async function normalizeVideoReferenceParams(
+  model: string,
+  provider: Provider,
+  params: VideoRequestParams,
+): Promise<VideoRequestParams> {
+  const modelConfig = getModelConfig(model);
+  if (provider !== "airforce" || modelConfig?.value !== "grok-imagine-video") {
+    return params;
+  }
+
+  const sourceImageUrls = Array.from(
+    new Set(
+      [params.imageUrl, ...(params.imageUrls ?? [])].filter(
+        (url): url is string => typeof url === "string" && url.trim().length > 0,
+      ),
+    ),
+  ).slice(0, 2);
+
+  if (sourceImageUrls.length === 0) {
+    return params;
+  }
+
+  const normalizedEntries = await Promise.all(
+    sourceImageUrls.map(async (url) => {
+      try {
+        const normalizedUrl = await normalizeReferenceImageUrl(url);
+        return [url, isPublicProviderReferenceUrl(normalizedUrl) ? normalizedUrl : url] as const;
+      } catch (error) {
+        console.warn(
+          "[generation-actions] reference image normalization failed; using original URL",
+          { model, provider, url, error },
+        );
+        return [url, url] as const;
+      }
+    }),
+  );
+
+  const normalizedBySourceUrl = new Map(normalizedEntries);
+  const normalizedImageUrls = sourceImageUrls.map(
+    (url) => normalizedBySourceUrl.get(url) ?? url,
+  );
+  const normalizedPrimaryUrl =
+    params.imageUrl && params.imageUrl.trim().length > 0
+      ? normalizedBySourceUrl.get(params.imageUrl) ?? params.imageUrl
+      : undefined;
+
+  return {
+    ...params,
+    imageUrl: normalizedPrimaryUrl,
+    imageUrls: Array.from(new Set(normalizedImageUrls)),
+  };
+}
 
 interface GenerationActionsContextValue {
   generateFromCurrentState: () => Promise<void>;
@@ -45,7 +142,10 @@ interface GenerationActionsContextValue {
 const GenerationActionsContext =
   createContext<GenerationActionsContextValue | null>(null);
 
-function buildVideoParamsFromState(state: StudioState): VideoRequestParams | null {
+function buildVideoParamsFromState(
+  state: StudioState,
+  selectedCanvasImageUrl: string | null,
+): VideoRequestParams | null {
   const modelConfig = getModelConfig(state.model);
   if (!modelConfig || modelConfig.kind !== "video") return null;
 
@@ -70,8 +170,14 @@ function buildVideoParamsFromState(state: StudioState): VideoRequestParams | nul
   if (caps.generateAudio) {
     params.generateAudio = state.generateAudio;
   }
-  if (caps.imageUrl && state.videoImageUrl) {
-    params.imageUrl = state.videoImageUrl;
+  if (caps.imageUrl) {
+    const referenceImages = buildReferenceImageUrls(state);
+    if (referenceImages.imageUrl) {
+      params.imageUrl = referenceImages.imageUrl;
+    }
+    if (referenceImages.imageUrls.length > 0) {
+      params.imageUrls = referenceImages.imageUrls;
+    }
   }
   if (caps.audioUrl && state.videoAudioUrl) {
     params.audioUrl = state.videoAudioUrl;
@@ -84,6 +190,10 @@ function buildVideoParamsFromState(state: StudioState): VideoRequestParams | nul
   }
   if (caps.seed && state.seed) {
     params.seed = parseInt(state.seed, 10);
+  }
+
+  if (state.useSelectedImageForVideo && selectedCanvasImageUrl) {
+    return applyVideoReferenceImagesToParams(state.model, params, [selectedCanvasImageUrl]);
   }
 
   return params;
@@ -175,22 +285,76 @@ function createRetryImageJob(retryPayload: ImageRetryPayload): ImageJob {
   };
 }
 
+type ImageGenerationError = Error & {
+  status?: number;
+  upstreamStatus?: number;
+  upstreamBody?: unknown;
+};
+
+async function buildImageGenerationError(
+  response: Response,
+  provider: Provider,
+): Promise<ImageGenerationError> {
+  const fallbackMessage = `${provider} generation failed`;
+  let message = fallbackMessage;
+  let upstreamStatus: number | undefined;
+  let upstreamBody: unknown;
+
+  const rawText = await response.text().catch(() => "");
+  if (rawText.trim()) {
+    try {
+      const parsed = JSON.parse(rawText) as {
+        error?: string | { message?: string };
+        message?: string;
+        upstreamStatus?: number;
+        upstreamBody?: unknown;
+      };
+
+      if (typeof parsed.error === "string") {
+        message = parsed.error;
+      } else if (parsed.error?.message) {
+        message = parsed.error.message;
+      } else if (parsed.message) {
+        message = parsed.message;
+      }
+
+      if (typeof parsed.upstreamStatus === "number") {
+        upstreamStatus = parsed.upstreamStatus;
+      }
+      if (parsed.upstreamBody !== undefined) {
+        upstreamBody = parsed.upstreamBody;
+      }
+    } catch {
+      message = rawText.slice(0, 200);
+    }
+  }
+
+  const error = new Error(message) as ImageGenerationError;
+  error.name = "ImageGenerationError";
+  error.status = response.status;
+  error.upstreamStatus = upstreamStatus;
+  error.upstreamBody = upstreamBody;
+  return error;
+}
+
 export function GenerationActionsProvider({
   children,
 }: {
   children: ReactNode;
 }) {
-  const { state, completeGeneration, setPrompt } = useStudio();
+  const { state, completeGeneration } = useStudio();
   const [isSubmittingVideo, setIsSubmittingVideo] = useState(false);
 
   const addVideoJob = useVideoJobsStore((s) => s.addJob);
+  const replaceVideoJob = useVideoJobsStore((s) => s.replaceJob);
+  const updateVideoJob = useVideoJobsStore((s) => s.updateJob);
   const setVideoJobStatus = useVideoJobsStore((s) => s.setJobStatus);
   const markVideoJobCompleted = useVideoJobsStore((s) => s.markJobCompleted);
   const markVideoJobError = useVideoJobsStore((s) => s.markJobError);
-  const removeVideoJob = useVideoJobsStore((s) => s.removeJob);
   const selectVideoJob = useVideoJobsStore((s) => s.selectJob);
 
   const addImageJob = useImageJobsStore((s) => s.addJob);
+  const setImageJobStatus = useImageJobsStore((s) => s.setJobStatus);
   const startImageJob = useImageJobsStore((s) => s.startJob);
   const markImageJobCompleted = useImageJobsStore((s) => s.markJobCompleted);
   const markImageJobError = useImageJobsStore((s) => s.markJobError);
@@ -199,7 +363,7 @@ export function GenerationActionsProvider({
   const pollHandlesRef = useRef<Map<string, PollHandle>>(new Map());
   const imageAbortRef = useRef<Map<string, AbortController>>(new Map());
   const hasResumedImageJobs = useRef(false);
-  const isSubmittingVideoRef = useRef(false);
+  const pendingVideoSubmissionCountRef = useRef(0);
 
   const startPollingJob = useCallback(
     (jobId: string, provider: Provider) => {
@@ -275,37 +439,64 @@ export function GenerationActionsProvider({
 
   const executeImageJob = useCallback(
     (job: ImageJob) => {
-      if (useImageJobsStore.getState().jobs.find((entry) => entry.id === job.id)?.status === "cancelled") {
+      const isCancelled = () =>
+        useImageJobsStore.getState().jobs.find((entry) => entry.id === job.id)?.status ===
+        "cancelled";
+
+      if (isCancelled()) {
         return;
       }
 
-      startImageJob(job.id);
+      const runRequest = async () => {
+        if (isCancelled()) {
+          throw new AirforceSubmissionCancelledError();
+        }
 
-      const controller = new AbortController();
-      imageAbortRef.current.set(job.id, controller);
+        startImageJob(job.id);
 
-      const providerRoute = `/api/generate/${job.provider}`;
-      const credentials = buildProviderCredentials(
-        job.provider,
-        useSettingsStore.getState(),
-      );
-      const livePayload = injectCredentials(job.payload, credentials);
+        const controller = new AbortController();
+        imageAbortRef.current.set(job.id, controller);
 
-      fetch(providerRoute, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(livePayload),
-        signal: controller.signal,
-      })
-        .then(async (response) => {
-          const data: ImageGenerationResponse & { error?: string } = await response.json();
+        const providerRoute = `/api/generate/${job.provider}`;
+        const credentials = buildProviderCredentials(
+          job.provider,
+          useSettingsStore.getState(),
+        );
+        const livePayload = injectCredentials(job.payload, credentials);
+
+        try {
+          const response = await fetch(providerRoute, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(livePayload),
+            signal: controller.signal,
+          });
+
           if (!response.ok) {
-            throw new Error(data.error || `${job.provider} generation failed`);
+            throw await buildImageGenerationError(response, job.provider);
           }
+
+          const data = (await response.json()) as ImageGenerationResponse;
           validateImageGenerationResponse(data, job.provider);
-          const images = getGeneratedImages(data);
-          return images;
-        })
+          return getGeneratedImages(data);
+        } finally {
+          imageAbortRef.current.delete(job.id);
+        }
+      };
+
+      const requestPromise =
+        job.provider === "airforce"
+          ? queueAirforceSubmission(runRequest, {
+              isCancelled,
+              onRetryScheduled: (directive) => {
+                if (directive.kind === "provider-wait") {
+                  setImageJobStatus(job.id, "queued");
+                }
+              },
+            })
+          : runRequest();
+
+      requestPromise
         .then((generatedImages) => {
           const currentJob = useImageJobsStore
             .getState()
@@ -336,17 +527,26 @@ export function GenerationActionsProvider({
           });
         })
         .catch((error: unknown) => {
-          if ((error as Error).name === "AbortError") return;
+          if (
+            (error as Error).name === "AbortError" ||
+            error instanceof AirforceSubmissionCancelledError
+          ) {
+            return;
+          }
+
           const message =
             error instanceof Error ? error.message : "Image generation failed";
           markImageJobError(job.id, message);
           toast.error(message);
-        })
-        .finally(() => {
-          imageAbortRef.current.delete(job.id);
         });
     },
-    [completeGeneration, markImageJobCompleted, markImageJobError, startImageJob],
+    [
+      completeGeneration,
+      markImageJobCompleted,
+      markImageJobError,
+      setImageJobStatus,
+      startImageJob,
+    ],
   );
 
   const submitVideoJob = useCallback(
@@ -354,7 +554,6 @@ export function GenerationActionsProvider({
       model,
       provider,
       params,
-      clearPrompt,
       selectNewJob,
       replaceJobId,
       successToastTitle,
@@ -362,7 +561,6 @@ export function GenerationActionsProvider({
       model: string;
       provider: VideoJob["provider"];
       params: VideoRequestParams;
-      clearPrompt: boolean;
       selectNewJob: boolean;
       replaceJobId?: string;
       successToastTitle: string;
@@ -372,44 +570,116 @@ export function GenerationActionsProvider({
 
       const prompt = params.prompt.trim();
       if (!prompt) return;
-      if (isSubmittingVideoRef.current) return;
 
-      isSubmittingVideoRef.current = true;
+      const timestamp = Date.now();
+      const pendingJobId = crypto.randomUUID();
+      const pendingJob: VideoJob = {
+        id: pendingJobId,
+        model,
+        provider,
+        prompt,
+        params: { ...params, prompt },
+        status: "queued",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        requestPending: true,
+      };
+
+      if (replaceJobId) {
+        replaceVideoJob(replaceJobId, pendingJob);
+      } else {
+        addVideoJob(pendingJob);
+      }
+      if (selectNewJob) {
+        selectVideoJob(pendingJobId);
+      }
+
+      pendingVideoSubmissionCountRef.current += 1;
       setIsSubmittingVideo(true);
+
       try {
+        const requestParams = await normalizeVideoReferenceParams(
+          model,
+          provider,
+          { ...params, prompt },
+        );
         const credentials = buildProviderCredentials(
           provider,
           useSettingsStore.getState(),
         );
 
-        const createResult = await createVideoGeneration({
-          provider,
-          model: modelConfig.value,
-          params: { ...params, prompt },
-          credentials,
-        });
+        const createResult =
+          provider === "airforce"
+            ? await queueAirforceSubmission(
+                () => {
+                  const currentJob = useVideoJobsStore
+                    .getState()
+                    .jobs.find((job) => job.id === pendingJobId);
+                  if (currentJob?.status === "cancelled") {
+                    throw new AirforceSubmissionCancelledError();
+                  }
 
-        const timestamp = Date.now();
-        addVideoJob({
+                  return createVideoGeneration({
+                    provider,
+                    model: modelConfig.value,
+                    params: requestParams,
+                    credentials,
+                  });
+                },
+                {
+                  isCancelled: () =>
+                    useVideoJobsStore
+                      .getState()
+                      .jobs.find((job) => job.id === pendingJobId)?.status === "cancelled",
+                  onRetryScheduled: (directive) => {
+                    if (directive.kind === "provider-wait") {
+                      updateVideoJob(pendingJobId, {
+                        status: "queued",
+                        requestPending: true,
+                      });
+                    }
+                  },
+                },
+              )
+            : await createVideoGeneration({
+                provider,
+                model: modelConfig.value,
+                params: requestParams,
+                credentials,
+              });
+
+        const latestPendingJob = useVideoJobsStore
+          .getState()
+          .jobs.find((job) => job.id === pendingJobId);
+        if (latestPendingJob?.status === "cancelled") {
+          replaceVideoJob(pendingJobId, {
+            id: createResult.id,
+            model,
+            provider,
+            prompt,
+            params: requestParams,
+            status: "cancelled",
+            createdAt: timestamp,
+            updatedAt: timestamp,
+            requestPending: false,
+          });
+          return;
+        }
+
+        replaceVideoJob(pendingJobId, {
           id: createResult.id,
           model,
           provider,
           prompt,
-          params: { ...params, prompt },
+          params: requestParams,
           status: createResult.status,
           createdAt: timestamp,
           updatedAt: timestamp,
+          requestPending: false,
         });
 
-        if (replaceJobId) {
-          removeVideoJob(replaceJobId);
-        }
         if (selectNewJob) {
           selectVideoJob(createResult.id);
-        }
-
-        if (clearPrompt) {
-          setPrompt("");
         }
 
         if (createResult.status === "completed" && createResult.videoUrl) {
@@ -426,36 +696,67 @@ export function GenerationActionsProvider({
 
         startPollingJob(createResult.id, provider);
       } catch (error: unknown) {
+        const latestPendingJob = useVideoJobsStore
+          .getState()
+          .jobs.find((job) => job.id === pendingJobId);
+        if (
+          latestPendingJob?.status === "cancelled" ||
+          error instanceof AirforceSubmissionCancelledError
+        ) {
+          return;
+        }
+
         const message =
-          error instanceof Error
-            ? error.message
-            : "Failed to start video generation";
+          (error instanceof Error && error.message) ||
+          "Failed to start video generation";
+        markVideoJobError(pendingJobId, message);
         toast.error(message);
+
+        if (error instanceof AirforceVideoError) {
+          console.error("[AirforceVideoError]", message, {
+            httpStatus: error.httpStatus,
+            diagnostics: error.diagnostics,
+            raw: error.raw,
+          });
+        }
       } finally {
-        isSubmittingVideoRef.current = false;
-        setIsSubmittingVideo(false);
+        pendingVideoSubmissionCountRef.current = Math.max(
+          0,
+          pendingVideoSubmissionCountRef.current - 1,
+        );
+        setIsSubmittingVideo(pendingVideoSubmissionCountRef.current > 0);
       }
     },
     [
       addVideoJob,
       markVideoJobCompleted,
-      removeVideoJob,
+      markVideoJobError,
+      replaceVideoJob,
       selectVideoJob,
-      setPrompt,
       startPollingJob,
+      updateVideoJob,
     ],
   );
 
   const generateFromCurrentState = useCallback(async () => {
     if (!state.prompt.trim()) return;
 
-    const videoParams = buildVideoParamsFromState(state);
+    const selectedCanvasImage = getSelectedCanvasImageSource({
+      selectedImage: state.selectedImage,
+      selectedVideoJobId: useVideoJobsStore.getState().selectedJobId,
+      imageJobs: useImageJobsStore.getState().jobs,
+      selectedImageJobId: useImageJobsStore.getState().selectedJobId,
+    });
+
+    const videoParams = buildVideoParamsFromState(
+      state,
+      selectedCanvasImage?.url ?? null,
+    );
     if (videoParams) {
       await submitVideoJob({
         model: state.model,
         provider: state.provider,
         params: videoParams,
-        clearPrompt: true,
         selectNewJob: true,
         successToastTitle: "Video generation submitted",
       });
@@ -492,7 +793,6 @@ export function GenerationActionsProvider({
         model: retryPayload.model,
         provider: retryPayload.provider,
         params: retryPayload.params,
-        clearPrompt: false,
         selectNewJob: true,
         replaceJobId: jobId,
         successToastTitle: "Video generation retried",
@@ -517,7 +817,11 @@ export function GenerationActionsProvider({
   useEffect(() => {
     const activeJobs = useVideoJobsStore
       .getState()
-      .jobs.filter((job) => job.status === "queued" || job.status === "generating");
+      .jobs.filter(
+        (job) =>
+          !job.requestPending &&
+          (job.status === "queued" || job.status === "generating"),
+      );
 
     for (const job of activeJobs) {
       startPollingJob(job.id, job.provider);

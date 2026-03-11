@@ -6,12 +6,12 @@ import {
   useReducer,
   useEffect,
   useCallback,
+  useState,
   type ReactNode,
 } from "react";
 import {
   MODELS,
   getMaxImagesForModel,
-  getModelsForProvider,
   getDefaultModelForProvider,
   getModelConfig,
   type AspectRatio,
@@ -20,6 +20,9 @@ import {
   type Provider,
   type VideoShotType,
 } from "@/lib/types";
+
+const HISTORY_STORAGE_KEY = "ideo-history";
+const PREFERENCES_STORAGE_KEY = "ideo-studio-preferences";
 
 // ---------------------------------------------------------------------------
 // State
@@ -49,7 +52,10 @@ export interface StudioState {
   videoAspectRatio: string;
   generateAudio: boolean;
   videoImageUrl: string;
+  videoImageUrl2: string;
+  useSelectedImageForVideo: boolean;
   videoAudioUrl: string;
+  useSelectedImageAsVideoReference: boolean;
   videoShotType: VideoShotType;
   // Status
   status: GenerationStatus;
@@ -59,6 +65,7 @@ export interface StudioState {
   selectedImage: GeneratedImage | null;
   // UI toggles
   isHistoryOpen: boolean;
+  isQueueOpen: boolean;
   isControlsOpen: boolean;
   isApiKeyDialogOpen: boolean;
   isImageViewerOpen: boolean;
@@ -84,7 +91,10 @@ export const initialState: StudioState = {
   videoAspectRatio: "16:9",
   generateAudio: false,
   videoImageUrl: "",
+  videoImageUrl2: "",
+  useSelectedImageForVideo: false,
   videoAudioUrl: "",
+  useSelectedImageAsVideoReference: false,
   videoShotType: "single",
   // Status
   status: "idle",
@@ -92,6 +102,7 @@ export const initialState: StudioState = {
   history: [],
   selectedImage: null,
   isHistoryOpen: false,
+  isQueueOpen: false,
   isControlsOpen: false,
   isApiKeyDialogOpen: false,
   isImageViewerOpen: false,
@@ -121,7 +132,10 @@ export type StudioAction =
   | { type: "SET_VIDEO_ASPECT_RATIO"; payload: string }
   | { type: "SET_GENERATE_AUDIO"; payload: boolean }
   | { type: "SET_VIDEO_IMAGE_URL"; payload: string }
+  | { type: "SET_VIDEO_IMAGE_URL_2"; payload: string }
+  | { type: "SET_USE_SELECTED_IMAGE_FOR_VIDEO"; payload: boolean }
   | { type: "SET_VIDEO_AUDIO_URL"; payload: string }
+  | { type: "SET_USE_SELECTED_IMAGE_AS_VIDEO_REFERENCE"; payload: boolean }
   | { type: "SET_VIDEO_SHOT_TYPE"; payload: VideoShotType }
   // Lifecycle
   | { type: "START_GENERATION" }
@@ -131,11 +145,103 @@ export type StudioAction =
   | { type: "REMOVE_IMAGE"; payload: string }
   | { type: "CLEAR_HISTORY" }
   | { type: "TOGGLE_HISTORY" }
+  | { type: "TOGGLE_QUEUE" }
   | { type: "TOGGLE_CONTROLS" }
   | { type: "SET_API_KEY_DIALOG"; payload: boolean }
   | { type: "SET_IMAGE_VIEWER"; payload: boolean }
   | { type: "RESET_STATUS" }
-  | { type: "HYDRATE"; payload: { history: GeneratedImage[] } };
+  | {
+      type: "HYDRATE";
+      payload: {
+        history: GeneratedImage[];
+        preferences?: Partial<
+          Pick<
+            StudioState,
+            "provider" | "model" | "aspectRatio" | "videoAspectRatio" | "videoResolution"
+          >
+        >;
+      };
+    };
+
+type PersistedStudioPreferences = Pick<
+  StudioState,
+  "provider" | "model" | "aspectRatio" | "videoAspectRatio" | "videoResolution"
+>;
+
+function isAspectRatioSupported(
+  model: ReturnType<typeof getModelConfig>,
+  ratio: AspectRatio,
+): boolean {
+  const aspectRatios = model?.capabilities.aspectRatios;
+  return !aspectRatios?.length || aspectRatios.includes(ratio);
+}
+
+function resolvePersistedModel(
+  provider: Provider | undefined,
+  modelId: string | undefined,
+): NonNullable<ReturnType<typeof getModelConfig>> {
+  const storedModel = modelId ? getModelConfig(modelId) : undefined;
+  if (storedModel) {
+    return storedModel;
+  }
+
+  const providerDefault = provider ? getDefaultModelForProvider(provider) : undefined;
+  return providerDefault ?? getModelConfig(initialState.model)!;
+}
+
+function sanitizePersistedPreferences(raw: unknown): Partial<PersistedStudioPreferences> {
+  if (!raw || typeof raw !== "object") {
+    return {};
+  }
+
+  const parsed = raw as Partial<PersistedStudioPreferences>;
+  const provider =
+    typeof parsed.provider === "string" &&
+    MODELS.some((model) => model.provider === parsed.provider)
+      ? parsed.provider
+      : undefined;
+  const model = resolvePersistedModel(provider, parsed.model);
+
+  const preferences: Partial<PersistedStudioPreferences> = {
+    provider: model.provider,
+    model: model.id,
+  };
+
+  if (
+    typeof parsed.aspectRatio === "string" &&
+    isAspectRatioSupported(model, parsed.aspectRatio as AspectRatio)
+  ) {
+    preferences.aspectRatio = parsed.aspectRatio as AspectRatio;
+  }
+
+  if (
+    typeof parsed.videoAspectRatio === "string" &&
+    (!model.capabilities.videoAspectRatios?.length ||
+      model.capabilities.videoAspectRatios.includes(parsed.videoAspectRatio))
+  ) {
+    preferences.videoAspectRatio = parsed.videoAspectRatio;
+  }
+
+  if (
+    typeof parsed.videoResolution === "string" &&
+    (!model.capabilities.resolutionOptions?.length ||
+      model.capabilities.resolutionOptions.includes(parsed.videoResolution))
+  ) {
+    preferences.videoResolution = parsed.videoResolution;
+  }
+
+  return preferences;
+}
+
+function getPersistedPreferences(state: StudioState): PersistedStudioPreferences {
+  return {
+    provider: state.provider,
+    model: state.model,
+    aspectRatio: state.aspectRatio,
+    videoAspectRatio: state.videoAspectRatio,
+    videoResolution: state.videoResolution,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Helpers — kind-specific defaults
@@ -174,7 +280,10 @@ export function applyModelDefaults(
     overrides.videoAspectRatio = caps?.videoAspectRatios?.[0] ?? initialState.videoAspectRatio;
     overrides.generateAudio = false;
     overrides.videoImageUrl = "";
+    overrides.videoImageUrl2 = "";
+    overrides.useSelectedImageForVideo = false;
     overrides.videoAudioUrl = "";
+    overrides.useSelectedImageAsVideoReference = false;
     overrides.videoShotType = "single";
     overrides.numberOfImages = 1;
   }
@@ -262,8 +371,14 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
       return { ...state, generateAudio: action.payload };
     case "SET_VIDEO_IMAGE_URL":
       return { ...state, videoImageUrl: action.payload };
+    case "SET_VIDEO_IMAGE_URL_2":
+      return { ...state, videoImageUrl2: action.payload };
+    case "SET_USE_SELECTED_IMAGE_FOR_VIDEO":
+      return { ...state, useSelectedImageForVideo: action.payload };
     case "SET_VIDEO_AUDIO_URL":
       return { ...state, videoAudioUrl: action.payload };
+    case "SET_USE_SELECTED_IMAGE_AS_VIDEO_REFERENCE":
+      return { ...state, useSelectedImageAsVideoReference: action.payload };
     case "SET_VIDEO_SHOT_TYPE":
       return { ...state, videoShotType: action.payload };
     case "START_GENERATION":
@@ -278,18 +393,34 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
     case "FAIL_GENERATION":
       return { ...state, status: "error", error: action.payload };
     case "SELECT_IMAGE":
-      return { ...state, selectedImage: action.payload };
+      return {
+        ...state,
+        selectedImage: action.payload,
+        useSelectedImageAsVideoReference:
+          action.payload === null ? false : state.useSelectedImageAsVideoReference,
+      };
     case "REMOVE_IMAGE":
       return {
         ...state,
         history: state.history.filter((img) => img.id !== action.payload),
         selectedImage:
           state.selectedImage?.id === action.payload ? null : state.selectedImage,
+        useSelectedImageAsVideoReference:
+          state.selectedImage?.id === action.payload
+            ? false
+            : state.useSelectedImageAsVideoReference,
       };
     case "CLEAR_HISTORY":
-      return { ...state, history: [], selectedImage: null };
+      return {
+        ...state,
+        history: [],
+        selectedImage: null,
+        useSelectedImageAsVideoReference: false,
+      };
     case "TOGGLE_HISTORY":
       return { ...state, isHistoryOpen: !state.isHistoryOpen };
+    case "TOGGLE_QUEUE":
+      return { ...state, isQueueOpen: !state.isQueueOpen };
     case "TOGGLE_CONTROLS":
       return { ...state, isControlsOpen: !state.isControlsOpen };
     case "SET_API_KEY_DIALOG":
@@ -301,6 +432,7 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
     case "HYDRATE":
       return {
         ...state,
+        ...action.payload.preferences,
         history: action.payload.history,
       };
     default:
@@ -333,7 +465,10 @@ interface StudioContextValue {
   setVideoAspectRatio: (r: string) => void;
   setGenerateAudio: (enabled: boolean) => void;
   setVideoImageUrl: (url: string) => void;
+  setVideoImageUrl2: (url: string) => void;
+  setUseSelectedImageForVideo: (enabled: boolean) => void;
   setVideoAudioUrl: (url: string) => void;
+  setUseSelectedImageAsVideoReference: (enabled: boolean) => void;
   setVideoShotType: (t: VideoShotType) => void;
   // Lifecycle
   startGeneration: () => void;
@@ -343,6 +478,7 @@ interface StudioContextValue {
   removeImage: (id: string) => void;
   clearHistory: () => void;
   toggleHistory: () => void;
+  toggleQueue: () => void;
   toggleControls: () => void;
   openApiKeyDialog: () => void;
   closeApiKeyDialog: () => void;
@@ -359,33 +495,62 @@ const StudioContext = createContext<StudioContextValue | null>(null);
 
 export function StudioProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(studioReducer, initialState);
+  const [isHydrated, setIsHydrated] = useState(false);
 
   // Hydrate from localStorage on mount + purge legacy secrets
   useEffect(() => {
-    try {
-      // One-time cleanup: remove legacy key that stored client-side API secrets.
-      localStorage.removeItem("ideo-settings");
+      try {
+        // One-time cleanup: remove legacy key that stored client-side API secrets.
+        localStorage.removeItem("ideo-settings");
 
-      const storedHistory = localStorage.getItem("ideo-history");
-      dispatch({
-        type: "HYDRATE",
-        payload: {
-          history: storedHistory ? (JSON.parse(storedHistory) as GeneratedImage[]) : [],
-        },
-      });
-    } catch {
-      // SSR or localStorage unavailable — ignore
-    }
-  }, []);
+        const storedHistory = localStorage.getItem(HISTORY_STORAGE_KEY);
+        const storedPreferences = localStorage.getItem(PREFERENCES_STORAGE_KEY);
+        dispatch({
+          type: "HYDRATE",
+          payload: {
+            history: storedHistory ? (JSON.parse(storedHistory) as GeneratedImage[]) : [],
+            preferences: sanitizePersistedPreferences(
+              storedPreferences ? JSON.parse(storedPreferences) : undefined,
+            ),
+          },
+        });
+      } catch {
+        // SSR or localStorage unavailable — ignore
+      } finally {
+        setIsHydrated(true);
+      }
+    }, []);
 
   // Persist history
   useEffect(() => {
+    if (!isHydrated) return;
+
     try {
-      localStorage.setItem("ideo-history", JSON.stringify(state.history));
+      localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(state.history));
     } catch {
       // ignore
     }
-  }, [state.history]);
+  }, [isHydrated, state.history]);
+
+  useEffect(() => {
+    if (!isHydrated) return;
+
+    try {
+      localStorage.setItem(
+        PREFERENCES_STORAGE_KEY,
+        JSON.stringify(getPersistedPreferences(state)),
+      );
+    } catch {
+      // ignore
+    }
+  }, [
+    isHydrated,
+    state.aspectRatio,
+    state.model,
+    state.provider,
+    state.videoAspectRatio,
+    state.videoResolution,
+  ]);
 
   // ---- Action creators (stable refs via useCallback) ----
 
@@ -462,8 +627,25 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     (url: string) => dispatch({ type: "SET_VIDEO_IMAGE_URL", payload: url }),
     [],
   );
+  const setVideoImageUrl2 = useCallback(
+    (url: string) => dispatch({ type: "SET_VIDEO_IMAGE_URL_2", payload: url }),
+    [],
+  );
+  const setUseSelectedImageForVideo = useCallback(
+    (enabled: boolean) =>
+      dispatch({ type: "SET_USE_SELECTED_IMAGE_FOR_VIDEO", payload: enabled }),
+    [],
+  );
   const setVideoAudioUrl = useCallback(
     (url: string) => dispatch({ type: "SET_VIDEO_AUDIO_URL", payload: url }),
+    [],
+  );
+  const setUseSelectedImageAsVideoReference = useCallback(
+    (enabled: boolean) =>
+      dispatch({
+        type: "SET_USE_SELECTED_IMAGE_AS_VIDEO_REFERENCE",
+        payload: enabled,
+      }),
     [],
   );
   const setVideoShotType = useCallback(
@@ -496,6 +678,10 @@ export function StudioProvider({ children }: { children: ReactNode }) {
   );
   const toggleHistory = useCallback(
     () => dispatch({ type: "TOGGLE_HISTORY" }),
+    [],
+  );
+  const toggleQueue = useCallback(
+    () => dispatch({ type: "TOGGLE_QUEUE" }),
     [],
   );
   const toggleControls = useCallback(
@@ -546,7 +732,10 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     setVideoAspectRatio,
     setGenerateAudio,
     setVideoImageUrl,
+    setVideoImageUrl2,
+    setUseSelectedImageForVideo,
     setVideoAudioUrl,
+    setUseSelectedImageAsVideoReference,
     setVideoShotType,
     startGeneration,
     completeGeneration,
@@ -555,6 +744,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     removeImage,
     clearHistory,
     toggleHistory,
+    toggleQueue,
     toggleControls,
     openApiKeyDialog,
     closeApiKeyDialog,

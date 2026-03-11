@@ -3,6 +3,10 @@ import { isAllowedModel } from "@/lib/server/model-allowlist";
 import { generationLimiter, getClientIp, rateLimitResponse } from "@/lib/server/rate-limit";
 import { resolveApiKey } from "@/lib/server/resolve-keys";
 import { extractApiKey } from "@/lib/server/extract-credentials";
+import {
+  logGenerationRequest,
+  logGenerationTextResponse,
+} from "@/lib/server/generation-debug";
 
 // ---------------------------------------------------------------------------
 // Server-side proxy for AIML video generation API.
@@ -83,6 +87,8 @@ export async function POST(request: Request) {
   }
 
   try {
+    logGenerationRequest("POST api/aiml/video/generations", upstreamBody);
+
     const upstream = await fetch(UPSTREAM, {
       method: "POST",
       headers: {
@@ -95,6 +101,11 @@ export async function POST(request: Request) {
     // Preserve upstream status and body as-is so the client service layer
     // can apply its existing error-parsing logic unchanged.
     const data = await upstream.text();
+    logGenerationTextResponse(
+      "POST api/aiml/video/generations",
+      upstream.status,
+      data,
+    );
     return new NextResponse(data, {
       status: upstream.status,
       headers: { "Content-Type": "application/json" },
@@ -141,6 +152,10 @@ export async function GET(request: Request) {
   }
 
   try {
+    logGenerationRequest("GET api/aiml/video/generations", {
+      generation_id: generationId,
+    });
+
     const upstream = await fetch(
       `${UPSTREAM}?generation_id=${encodeURIComponent(generationId)}`,
       {
@@ -153,6 +168,11 @@ export async function GET(request: Request) {
     );
 
     const data = await upstream.text();
+    logGenerationTextResponse(
+      "GET api/aiml/video/generations",
+      upstream.status,
+      data,
+    );
     return new NextResponse(data, {
       status: upstream.status,
       headers: { "Content-Type": "application/json" },

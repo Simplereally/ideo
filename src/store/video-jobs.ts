@@ -30,6 +30,7 @@ interface VideoJobsState {
 
   // ---- mutations ----
   addJob: (job: VideoJob) => void;
+  replaceJob: (id: string, job: VideoJob) => void;
   updateJob: (id: string, patch: Partial<VideoJob>) => void;
   setJobStatus: (
     id: string,
@@ -118,6 +119,32 @@ export const useVideoJobsStore = create<VideoJobsState>()(
         set((s) => {
           const jobs = [job, ...s.jobs];
           return { jobs, activeJobIds: deriveActiveIds(jobs) };
+        }),
+
+      replaceJob: (id, job) =>
+        set((s) => {
+          const hasTarget = s.jobs.some((entry) => entry.id === id);
+          if (!hasTarget) {
+            const jobs = [job, ...s.jobs];
+            return {
+              jobs,
+              activeJobIds: deriveActiveIds(jobs),
+              selectedJobId:
+                s.selectedJobId === id
+                  ? job.id
+                  : resolveSelectedJobId(jobs, s.selectedJobId),
+            };
+          }
+
+          const jobs = s.jobs.map((entry) => (entry.id === id ? job : entry));
+          return {
+            jobs,
+            activeJobIds: deriveActiveIds(jobs),
+            selectedJobId:
+              s.selectedJobId === id
+                ? job.id
+                : resolveSelectedJobId(jobs, s.selectedJobId),
+          };
         }),
 
       updateJob: (id, patch) =>

@@ -1,6 +1,13 @@
 "use client";
 
-import { useState, type FocusEvent, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FocusEvent,
+  type ReactNode,
+} from "react";
 import {
   X,
   Aperture,
@@ -22,6 +29,7 @@ import { MODELS } from "@/lib/types";
 import type { GeneratedImage, VideoGenerationStatus, VideoJob } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { useGenerationActions } from "./generation-actions";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
@@ -98,9 +106,7 @@ function ActionIconButton({
     <button
       type="button"
       aria-label={label}
-      aria-hidden={!isVisible}
       title={label}
-      disabled={!isVisible}
       tabIndex={isVisible ? 0 : -1}
       onClick={(event) => {
         event.stopPropagation();
@@ -108,7 +114,6 @@ function ActionIconButton({
       }}
       className={cn(
         "flex size-6 items-center justify-center rounded-full bg-card shadow-sm border border-border transition-all",
-        !isVisible && "pointer-events-none",
         className,
       )}
     >
@@ -196,7 +201,7 @@ function HistoryItem({
         </div>
       </button>
 
-      <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 transition-all group-hover:opacity-100 group-focus-within:opacity-100">
+      <div className="pointer-events-none absolute top-2 right-2 flex items-center gap-1 opacity-0 transition-all group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
         <ActionIconButton
           label="Copy prompt"
           onClick={() => {
@@ -239,6 +244,7 @@ function VideoJobItem({
   const cfg = STATUS_CONFIG[job.status];
   const StatusIcon = cfg.icon;
   const isActive = job.status === "queued" || job.status === "generating";
+  const canRetry = job.status === "error";
 
   return (
     <div
@@ -248,12 +254,22 @@ function VideoJobItem({
         isSelected && "selected",
       )}
     >
-      <button
-        type="button"
-        onClick={onSelect}
-        aria-pressed={isSelected}
-        className="flex min-w-0 flex-1 items-center gap-3 text-left"
-      >
+      {canRetry ? (
+        <button
+          type="button"
+          onClick={onRetry}
+          aria-label="Retry failed video generation"
+          title="Retry failed video generation"
+          className="relative flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-muted/50 text-primary transition-all hover:scale-[1.03] hover:border-primary/30 hover:bg-primary/5"
+        >
+          <div className="flex flex-col items-center justify-center gap-0.5">
+            <RotateCcw className="size-3.5" strokeWidth={1.75} />
+            <span className="text-[8px] font-semibold uppercase tracking-[0.08em]">
+              Retry
+            </span>
+          </div>
+        </button>
+      ) : (
         <div
           className={cn(
             "relative flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border",
@@ -269,7 +285,15 @@ function VideoJobItem({
             />
           )}
         </div>
+      )}
 
+      <button
+        type="button"
+        onClick={onSelect}
+        aria-pressed={isSelected}
+        tabIndex={canRetry ? -1 : 0}
+        className="flex min-w-0 flex-1 items-center gap-3 text-left"
+      >
         <div className="flex min-w-0 flex-1 flex-col justify-center gap-1">
           <p className="line-clamp-2 text-xs font-medium leading-relaxed text-foreground">
             {job.prompt}
@@ -290,7 +314,7 @@ function VideoJobItem({
         </div>
       </button>
 
-      <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 transition-all group-hover:opacity-100 group-focus-within:opacity-100">
+      <div className="pointer-events-none absolute top-2 right-2 flex items-center gap-1 opacity-0 transition-all group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
         <ActionIconButton
           label="Copy prompt"
           onClick={() => {
@@ -301,17 +325,6 @@ function VideoJobItem({
         >
           <Copy className="size-3" strokeWidth={2.5} />
         </ActionIconButton>
-
-        {job.status === "error" && (
-          <ActionIconButton
-            label="Retry failed video generation"
-            onClick={onRetry}
-            isVisible={isVisible}
-            className="text-muted-foreground hover:text-primary hover:scale-105"
-          >
-            <RotateCcw className="size-3" strokeWidth={2.5} />
-          </ActionIconButton>
-        )}
 
         {isActive && (
           <ActionIconButton
@@ -341,11 +354,15 @@ function VideoJobItem({
 
 function ImageJobItem({
   job,
+  isSelected,
+  onSelect,
   onCancel,
   onRemove,
   onRetry,
 }: {
   job: ImageJob;
+  isSelected: boolean;
+  onSelect: () => void;
   onCancel: () => void;
   onRemove: () => void;
   onRetry: () => void;
@@ -359,7 +376,10 @@ function ImageJobItem({
   return (
     <div
       {...containerProps}
-      className="ios-list-item group relative flex w-full gap-3 p-3 text-left"
+      className={cn(
+        "ios-list-item group relative flex w-full gap-3 p-3",
+        isSelected && "selected",
+      )}
     >
       {canRetry ? (
         <button
@@ -387,12 +407,10 @@ function ImageJobItem({
 
       <button
         type="button"
+        onClick={onSelect}
+        aria-pressed={isSelected}
         tabIndex={canRetry ? -1 : 0}
-        onClick={() => {
-          void copyPromptToClipboard(job.prompt);
-        }}
-        aria-label={`Image job: ${job.prompt}`}
-        className="flex min-w-0 flex-1 cursor-default items-start gap-3 text-left focus:outline-none"
+        className="flex min-w-0 flex-1 items-center gap-3 text-left"
       >
         <div className="flex min-w-0 flex-1 flex-col justify-center gap-1">
           <p className="line-clamp-2 text-xs font-medium leading-relaxed text-foreground">
@@ -414,7 +432,7 @@ function ImageJobItem({
         </div>
       </button>
 
-      <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 transition-all group-hover:opacity-100 group-focus-within:opacity-100">
+      <div className="pointer-events-none absolute top-2 right-2 flex items-center gap-1 opacity-0 transition-all group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
         <ActionIconButton
           label="Copy prompt"
           onClick={() => {
@@ -425,17 +443,6 @@ function ImageJobItem({
         >
           <Copy className="size-3" strokeWidth={2.5} />
         </ActionIconButton>
-
-        {canRetry && (
-          <ActionIconButton
-            label="Retry failed image generation"
-            onClick={onRetry}
-            isVisible={isVisible}
-            className="text-muted-foreground hover:text-primary hover:scale-105"
-          >
-            <RotateCcw className="size-3" strokeWidth={2.5} />
-          </ActionIconButton>
-        )}
 
         {isActive && (
           <ActionIconButton
@@ -475,6 +482,11 @@ function SectionDivider({ label }: { label: string }) {
 }
 
 const HISTORY_WIDTH = 320;
+const HISTORY_PAGE_SIZE = 20;
+const SAVED_IMAGE_ROW_HEIGHT = 72;
+const VIRTUALIZATION_OVERSCAN = 6;
+const INFINITE_SCROLL_THRESHOLD = 240;
+const FALLBACK_VIEWPORT_HEIGHT = 640;
 
 const PANEL_TRANSITION = {
   width: {
@@ -491,50 +503,156 @@ const PANEL_TRANSITION = {
 };
 
 export function HistoryPanel({ overlay }: { overlay?: boolean } = {}) {
-  const { state, selectImage, removeImage, clearHistory, toggleHistory } =
+  const { state, selectImage, removeImage, toggleHistory } =
     useStudio();
   const { retryImageJob, retryVideoJob } = useGenerationActions();
-  const [filter, setFilter] = useState<HistoryFilter>("all");
+  const isMobile = useIsMobile();
+  const [filter, setFilter] = useState<HistoryFilter>("complete");
+  const [savedImagePages, setSavedImagePages] = useState(1);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(0);
+  const [imagesSectionOffsetTop, setImagesSectionOffsetTop] = useState(0);
+  const scrollAreaHostRef = useRef<HTMLDivElement | null>(null);
+  const imagesSectionRef = useRef<HTMLDivElement | null>(null);
+
+  const maxSavedImagePages = Math.max(
+    1,
+    Math.ceil(state.history.length / HISTORY_PAGE_SIZE),
+  );
+
+  const paginatedSavedImages = useMemo(
+    () => state.history.slice(0, savedImagePages * HISTORY_PAGE_SIZE),
+    [state.history, savedImagePages],
+  );
+
+  const hasMoreSavedImages = paginatedSavedImages.length < state.history.length;
+
+  useEffect(() => {
+    setSavedImagePages((current) => Math.min(current, maxSavedImagePages));
+  }, [maxSavedImagePages]);
 
   const videoJobs = useVideoJobsStore((store) => store.jobs);
   const selectedJobId = useVideoJobsStore((store) => store.selectedJobId);
   const selectVideoJob = useVideoJobsStore((store) => store.selectJob);
   const removeVideoJob = useVideoJobsStore((store) => store.removeJob);
   const cancelVideoJob = useVideoJobsStore((store) => store.cancelJobLocal);
-  const clearTerminalVideoJobs = useVideoJobsStore(
-    (store) => store.clearTerminalJobs,
-  );
-
   const imageJobs = useImageJobsStore((store) => store.jobs);
+  const selectedImageJobId = useImageJobsStore((store) => store.selectedJobId);
+  const selectImageJob = useImageJobsStore((store) => store.selectJob);
   const cancelImageJob = useImageJobsStore((store) => store.cancelJobLocal);
   const removeImageJob = useImageJobsStore((store) => store.removeJob);
-  const clearTerminalImageJobs = useImageJobsStore(
-    (store) => store.clearTerminalJobs,
-  );
 
   const viewModel = buildHistoryPanelViewModel({
     filter,
-    savedImages: state.history,
+    savedImages: paginatedSavedImages,
     selectedImageId: state.selectedImage?.id ?? null,
     videoJobs,
     selectedVideoJobId: selectedJobId,
     imageJobs,
+    selectedImageJobId,
   });
+
+  const imagesSection = viewModel.sections.find((section) => section.id === "images");
+  const loadedImageCount = imagesSection?.items.length ?? 0;
+  const hasImagesSection = loadedImageCount > 0;
+
+  useEffect(() => {
+    const host = scrollAreaHostRef.current;
+    if (!host) {
+      return;
+    }
+
+    const viewportElement = host.querySelector<HTMLDivElement>(
+      "[data-slot='scroll-area-viewport']",
+    );
+
+    if (!viewportElement) {
+      return;
+    }
+
+    const viewport = viewportElement;
+
+    function syncScrollMetrics() {
+      setScrollTop(viewport.scrollTop);
+      setViewportHeight(viewport.clientHeight);
+
+      if (imagesSectionRef.current) {
+        setImagesSectionOffsetTop(imagesSectionRef.current.offsetTop);
+      }
+
+      if (
+        hasMoreSavedImages &&
+        hasImagesSection &&
+        viewport.scrollTop + viewport.clientHeight >=
+          viewport.scrollHeight - INFINITE_SCROLL_THRESHOLD
+      ) {
+        setSavedImagePages((current) =>
+          current < maxSavedImagePages ? current + 1 : current,
+        );
+      }
+    }
+
+    syncScrollMetrics();
+    viewport.addEventListener("scroll", syncScrollMetrics, { passive: true });
+    window.addEventListener("resize", syncScrollMetrics);
+
+    return () => {
+      viewport.removeEventListener("scroll", syncScrollMetrics);
+      window.removeEventListener("resize", syncScrollMetrics);
+    };
+  }, [
+    filter,
+    hasImagesSection,
+    hasMoreSavedImages,
+    maxSavedImagePages,
+    loadedImageCount,
+  ]);
+
+  const effectiveViewportHeight =
+    viewportHeight > 0 ? viewportHeight : FALLBACK_VIEWPORT_HEIGHT;
+  const imageScrollTop = Math.max(scrollTop - imagesSectionOffsetTop, 0);
+  const estimatedStartIndex =
+    Math.floor(imageScrollTop / SAVED_IMAGE_ROW_HEIGHT) - VIRTUALIZATION_OVERSCAN;
+  const virtualStartIndex = Math.min(
+    loadedImageCount,
+    Math.max(0, estimatedStartIndex),
+  );
+  const estimatedEndIndex =
+    Math.ceil((imageScrollTop + effectiveViewportHeight) / SAVED_IMAGE_ROW_HEIGHT) +
+    VIRTUALIZATION_OVERSCAN;
+  const virtualEndIndex = Math.max(
+    virtualStartIndex,
+    Math.min(loadedImageCount, estimatedEndIndex),
+  );
+  const topSpacerHeight = virtualStartIndex * SAVED_IMAGE_ROW_HEIGHT;
+  const bottomSpacerHeight =
+    (loadedImageCount - virtualEndIndex) * SAVED_IMAGE_ROW_HEIGHT;
+
+  function closeOverlayAfterSelection() {
+    if (overlay && isMobile && state.isHistoryOpen) {
+      toggleHistory();
+    }
+  }
 
   function handleSelectImage(image: GeneratedImage) {
     selectVideoJob(null);
+    selectImageJob(null);
     selectImage(image);
+    closeOverlayAfterSelection();
   }
 
   function handleSelectVideoJob(jobId: string) {
     selectImage(null);
+    selectImageJob(null);
     selectVideoJob(jobId);
+    closeOverlayAfterSelection();
   }
 
-  function handleClearAll() {
-    clearHistory();
-    clearTerminalVideoJobs();
-    clearTerminalImageJobs();
+  function handleSelectImageJob(jobId: string) {
+    selectImage(null);
+    selectVideoJob(null);
+    selectImageJob(jobId);
+    closeOverlayAfterSelection();
   }
 
   function renderSectionItem(item: HistoryPanelItem) {
@@ -568,6 +686,8 @@ export function HistoryPanel({ overlay }: { overlay?: boolean } = {}) {
           <ImageJobItem
             key={item.key}
             job={item.job}
+            isSelected={item.isSelected}
+            onSelect={() => handleSelectImageJob(item.job.id)}
             onCancel={() => cancelImageJob(item.job.id)}
             onRemove={() => removeImageJob(item.job.id)}
             onRetry={() => void retryImageJob(item.job.id)}
@@ -579,21 +699,12 @@ export function HistoryPanel({ overlay }: { overlay?: boolean } = {}) {
   }
 
   const panelContent = (
-    <div className="flex h-full flex-col rounded-3xl border border-border bg-card shadow-sm">
+    <div className="flex h-full flex-col rounded-3xl border border-border bg-card shadow-sm overflow-hidden">
       <div className="flex shrink-0 items-center justify-between px-6 py-4">
         <h2 className="text-sm font-semibold tracking-tight text-foreground">
           History
         </h2>
         <div className="flex items-center gap-3">
-          {viewModel.hasAnyItems && (
-            <button
-              type="button"
-              onClick={handleClearAll}
-              className="text-[11px] font-semibold text-primary hover:text-primary/80"
-            >
-              Clear All
-            </button>
-          )}
           <button
             type="button"
             onClick={toggleHistory}
@@ -611,8 +722,8 @@ export function HistoryPanel({ overlay }: { overlay?: boolean } = {}) {
           <p className="text-sm font-medium text-foreground">No history</p>
         </div>
       ) : (
-        <div className="min-h-0 flex-1 px-4 pb-4">
-          <div className="px-2 pb-3">
+        <div className="min-h-0 flex-1 px-4 pb-4 flex flex-col">
+          <div className="px-2 pb-3 shrink-0">
             <ToggleGroup
               type="single"
               value={filter}
@@ -639,7 +750,7 @@ export function HistoryPanel({ overlay }: { overlay?: boolean } = {}) {
           </div>
 
           {!viewModel.hasVisibleItems && viewModel.emptyState ? (
-            <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center opacity-50">
+            <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center opacity-50">
               <Aperture className="size-10 text-foreground" strokeWidth={1} />
               <div className="space-y-1">
                 <p className="text-sm font-medium text-foreground">
@@ -651,16 +762,38 @@ export function HistoryPanel({ overlay }: { overlay?: boolean } = {}) {
               </div>
             </div>
           ) : (
-            <ScrollArea className="h-full ios-list">
-              <div className="flex flex-col">
-                {viewModel.sections.map((section) => (
-                  <div key={section.id}>
-                    {section.showDivider && <SectionDivider label={section.label} />}
-                    {section.items.map((item) => renderSectionItem(item))}
-                  </div>
-                ))}
-              </div>
-            </ScrollArea>
+            <div ref={scrollAreaHostRef} className="h-full">
+              <ScrollArea className="h-full ios-list">
+                <div className="flex flex-col">
+                  {viewModel.sections.map((section) => (
+                    <div
+                      key={section.id}
+                      ref={section.id === "images" ? imagesSectionRef : undefined}
+                    >
+                      {section.showDivider && <SectionDivider label={section.label} />}
+
+                      {section.id === "images" ? (
+                        <>
+                          {topSpacerHeight > 0 ? (
+                            <div style={{ height: topSpacerHeight }} aria-hidden />
+                          ) : null}
+
+                          {section.items
+                            .slice(virtualStartIndex, virtualEndIndex)
+                            .map((item) => renderSectionItem(item))}
+
+                          {bottomSpacerHeight > 0 ? (
+                            <div style={{ height: bottomSpacerHeight }} aria-hidden />
+                          ) : null}
+                        </>
+                      ) : (
+                        section.items.map((item) => renderSectionItem(item))
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </ScrollArea>
+            </div>
           )}
         </div>
       )}
